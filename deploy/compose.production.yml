@@ -22,7 +22,10 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      API_SITE_ADDRESS: ${API_SITE_ADDRESS}
+      ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -41,7 +44,7 @@ services:
     expose:
       - "3000"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -53,7 +56,8 @@ services:
     build:
       context: ../backend
     command: alembic upgrade head
-    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
     restart: "no"
     depends_on:
       postgres:
@@ -96,7 +100,11 @@ services:
     image: docker.litellm.ai/berriai/litellm:v1.92.0
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     restart: unless-stopped
-    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      GEMMA_INFERENCE_BASE_URL: ${GEMMA_INFERENCE_BASE_URL}
+      QWEN_INFERENCE_BASE_URL: ${QWEN_INFERENCE_BASE_URL}
+      VLLM_API_KEY: ${VLLM_API_KEY}
     expose:
       - "4000"
     volumes:
@@ -163,7 +171,10 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -190,7 +201,9 @@ services:
     image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
-    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - miniodata:/data
     logging: *default-logging
@@ -200,7 +213,10 @@ services:
     depends_on:
       minio:
         condition: service_started
-    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
     entrypoint: >
       /bin/sh -c "
       until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do sleep 1; done;
