@@ -22,11 +22,11 @@ PostgreSQL, Redis, MinIO, LiteLLM, FastAPI, and Next.js are not published on hos
 - A supported Linux distribution with Docker Engine and Docker Compose v2
 - Ports `80/tcp` and `443/tcp` open to the internet
 - DNS records for `chat.coreai.uz` and `api.coreai.uz` pointing to the VM
-- Private network access from LiteLLM to both vLLM worker endpoints
+- SSH access from the application VM to the GPU VM
 - Enough persistent disk for PostgreSQL, Redis, MinIO, and Caddy data
 
-The production VM does not use the local-development SSH forwards. Set
-`GEMMA_INFERENCE_BASE_URL` and `QWEN_INFERENCE_BASE_URL` to private worker addresses.
+The production stack maintains an SSH tunnel inside its private Docker network. The GPU VM keeps
+both vLLM ports bound to loopback.
 
 ## Configure
 
@@ -42,6 +42,8 @@ Replace every `CHANGE_ME` value. Important relationships:
 - `MINIO_ROOT_PASSWORD` and `MINIO_SECRET_KEY` must match.
 - `LITELLM_MASTER_KEY` is referenced by `MODELS_CONFIG` and is never exposed publicly.
 - `VLLM_API_KEY` must match the worker configuration.
+- `INFERENCE_SSH_PRIVATE_KEY_PATH` must point to the restricted tunnel key on the application VM.
+- `INFERENCE_SSH_KNOWN_HOSTS_PATH` must contain the verified GPU VM host key.
 - `GOOGLE_CLIENT_ID` must allow `https://chat.coreai.uz` as a JavaScript origin.
 - `SESSION_SECRET`, `JWT_SECRET`, and `API_KEY_PEPPER` must be independent random values.
 
@@ -123,7 +125,7 @@ database restore and volume recovery before launch.
 - DNS resolves to the production VM.
 - TLS certificates are issued successfully by Caddy.
 - `.env.prod` passes `./preflight.sh` and is readable only by the deployment user.
-- The vLLM endpoints are reachable over the private network and are not publicly exposed.
+- The inference tunnel is healthy and the vLLM endpoints are not publicly exposed.
 - `/api/health/ready` reports `ready` for both models.
 - Google OAuth production origin and branding are configured.
 - PostgreSQL backups and VM monitoring are active.

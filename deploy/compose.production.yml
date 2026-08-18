@@ -101,12 +101,63 @@ services:
       - "4000"
     volumes:
       - ../litellm/config.production.yaml:/app/config.yaml:ro
+    depends_on:
+      inference-tunnel:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
       interval: 5s
       timeout: 3s
       retries: 30
       start_period: 15s
+    logging: *default-logging
+
+  # Encrypted route to loopback-bound vLLM workers on the GPU VM. The mounted
+  # SSH key is restricted server-side to forwarding ports 18001 and 18002 only.
+  inference-tunnel:
+    build:
+      context: ./tunnel
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    command:
+      - -NT
+      - -g
+      - -o
+      - BatchMode=yes
+      - -o
+      - ExitOnForwardFailure=yes
+      - -o
+      - ServerAliveInterval=30
+      - -o
+      - ServerAliveCountMax=3
+      - -o
+      - StrictHostKeyChecking=yes
+      - -o
+      - UserKnownHostsFile=/run/secrets/known_hosts
+      - -i
+      - /run/secrets/id_ed25519
+      - -p
+      - ${INFERENCE_SSH_PORT:-22}
+      - -L
+      - 0.0.0.0:18001:127.0.0.1:18001
+      - -L
+      - 0.0.0.0:18002:127.0.0.1:18002
+      - ${INFERENCE_SSH_USER}@${INFERENCE_SSH_HOST}
+    volumes:
+      - ${INFERENCE_SSH_PRIVATE_KEY_PATH}:/run/secrets/id_ed25519:ro
+      - ${INFERENCE_SSH_KNOWN_HOSTS_PATH}:/run/secrets/known_hosts:ro
+    expose:
+      - "18001"
+      - "18002"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 18001 && nc -z 127.0.0.1 18002"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
     logging: *default-logging
 
   postgres:

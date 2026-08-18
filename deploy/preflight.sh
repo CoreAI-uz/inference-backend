@@ -30,6 +30,11 @@ required=(
   MINIO_ROOT_PASSWORD
   MINIO_SECRET_KEY
   LITELLM_MASTER_KEY
+  INFERENCE_SSH_HOST
+  INFERENCE_SSH_PORT
+  INFERENCE_SSH_USER
+  INFERENCE_SSH_PRIVATE_KEY_PATH
+  INFERENCE_SSH_KNOWN_HOSTS_PATH
   GEMMA_INFERENCE_BASE_URL
   QWEN_INFERENCE_BASE_URL
   VLLM_API_KEY
@@ -45,6 +50,14 @@ for key in "${required[@]}"; do
   value="$(read_value "$key")"
   if [[ -z "$value" || "$value" == *CHANGE_ME* ]]; then
     echo "error: $key is missing or still uses a placeholder." >&2
+    failed=1
+  fi
+done
+
+for key in INFERENCE_SSH_PRIVATE_KEY_PATH INFERENCE_SSH_KNOWN_HOSTS_PATH; do
+  value="$(read_value "$key")"
+  if [[ -n "$value" && "$value" != *CHANGE_ME* && ! -f "$value" ]]; then
+    echo "error: $key does not point to an existing file." >&2
     failed=1
   fi
 done
