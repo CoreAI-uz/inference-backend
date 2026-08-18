@@ -8,7 +8,7 @@ import { DeveloperHeader } from "@/components/developer/DeveloperHeader";
 
 type Example = "curl" | "python" | "javascript" | "compatible";
 
-const API_BASE = "https://api.coreai.uz/v1";
+const API_BASE = "https://inference-api.coreai.uz/v1";
 const examples: Record<Example, string> = {
   curl: `curl ${API_BASE}/chat/completions \\
   -H "Authorization: Bearer $COREAI_API_KEY" \\

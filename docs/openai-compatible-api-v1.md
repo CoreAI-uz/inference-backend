@@ -4,7 +4,7 @@ Status: implementation contract for the first public API release.
 
 ## Product boundary
 
-- Base URL: `https://api.coreai.uz/v1`
+- Base URL: `https://inference-api.coreai.uz/v1`
 - Authentication: `Authorization: Bearer cai_...`
 - One CoreAI account owns chat history, API keys, consent choices, and shared limits.
 - API requests do not create web-chat conversations. Free-tier request and response content is

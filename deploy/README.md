@@ -4,7 +4,7 @@ This directory packages the public chat application and developer API for a sing
 Caddy terminates TLS and routes:
 
 - `chat.coreai.uz` to Next.js, with `/api/*` sent to FastAPI;
-- `api.coreai.uz/v1/*` directly to FastAPI.
+- `inference-api.coreai.uz/v1/*` directly to FastAPI.
 
 PostgreSQL, Redis, MinIO, LiteLLM, FastAPI, and Next.js are not published on host ports.
 
@@ -21,7 +21,7 @@ PostgreSQL, Redis, MinIO, LiteLLM, FastAPI, and Next.js are not published on hos
 
 - A supported Linux distribution with Docker Engine and Docker Compose v2
 - Ports `80/tcp` and `443/tcp` open to the internet
-- DNS records for `chat.coreai.uz` and `api.coreai.uz` pointing to the VM
+- DNS records for `chat.coreai.uz` and `inference-api.coreai.uz` pointing to the VM
 - SSH access from the application VM to the GPU VM
 - Enough persistent disk for PostgreSQL, Redis, MinIO, and Caddy data
 
@@ -77,7 +77,7 @@ both the frontend and backend health checks.
 curl --fail https://chat.coreai.uz/api/health
 curl --fail https://chat.coreai.uz/api/health/ready
 curl --fail https://chat.coreai.uz/api/health/inference
-curl --fail https://api.coreai.uz/v1/models \
+curl --fail https://inference-api.coreai.uz/v1/models \
   -H "Authorization: Bearer cai_your_test_key"
 ```
 

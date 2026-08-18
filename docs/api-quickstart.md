@@ -9,7 +9,7 @@ CoreAI implements the OpenAI Chat Completions shape. Existing applications norma
 configuration changes:
 
 ```text
-base URL: https://api.coreai.uz/v1
+base URL: https://inference-api.coreai.uz/v1
 API key:  cai_...
 ```
 
@@ -34,7 +34,7 @@ import os
 import requests
 
 response = requests.post(
-    "https://api.coreai.uz/v1/chat/completions",
+    "https://inference-api.coreai.uz/v1/chat/completions",
     headers={"Authorization": f"Bearer {os.environ['COREAI_API_KEY']}"},
     json={
         "model": "coreai-model-id",
@@ -58,7 +58,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key=os.environ["COREAI_API_KEY"],
-    base_url="https://api.coreai.uz/v1",
+    base_url="https://inference-api.coreai.uz/v1",
 )
 
 completion = client.chat.completions.create(
@@ -96,7 +96,7 @@ import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: process.env.COREAI_API_KEY,
-  baseURL: "https://api.coreai.uz/v1",
+  baseURL: "https://inference-api.coreai.uz/v1",
 });
 
 const completion = await client.chat.completions.create({
@@ -110,7 +110,7 @@ console.log(completion.choices[0].message.content);
 ## cURL
 
 ```bash
-curl https://api.coreai.uz/v1/chat/completions \
+curl https://inference-api.coreai.uz/v1/chat/completions \
   -H "Authorization: Bearer $COREAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -122,7 +122,7 @@ curl https://api.coreai.uz/v1/chat/completions \
 List the model IDs enabled for your account:
 
 ```bash
-curl https://api.coreai.uz/v1/models \
+curl https://inference-api.coreai.uz/v1/models \
   -H "Authorization: Bearer $COREAI_API_KEY"
 ```
 

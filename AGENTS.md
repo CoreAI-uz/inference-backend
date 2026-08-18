@@ -29,7 +29,7 @@ Bad:
 
 Good:
 
-> Base URL: `https://api.coreai.uz/v1`
+> Base URL: `https://inference-api.coreai.uz/v1`
 
 Bad:
 

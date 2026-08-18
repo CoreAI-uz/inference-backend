@@ -14,7 +14,7 @@ Browser ──► Next.js ──► FastAPI ──► LiteLLM ──► vLLM wor
 ```
 
 The web application is served at `chat.coreai.uz`. The public developer API is served at
-`api.coreai.uz/v1`. The GPU workers run separately and are reachable only through an SSH tunnel in
+`inference-api.coreai.uz/v1`. The GPU workers run separately and are reachable only through an SSH tunnel in
 local development or a private network in production.
 
 ## Requirements

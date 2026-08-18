@@ -1,4 +1,4 @@
-# Reverse proxy for chat.coreai.uz + api.coreai.uz.
+# Reverse proxy for chat.coreai.uz + inference-api.coreai.uz.
 # SITE_ADDRESS defaults to the prod domain (Caddy auto-provisions TLS via ACME).
 # For a local HTTP test, set SITE_ADDRESS=:8080 (Caddy serves plain HTTP, no ACME).
 
@@ -8,7 +8,7 @@
 
 # Public developer API. Keep this host backend-only so frontend routes and session
 # endpoints cannot accidentally become part of the public API surface.
-{$API_SITE_ADDRESS:api.coreai.uz} {
+{$API_SITE_ADDRESS:inference-api.coreai.uz} {
 	handle /v1/* {
 		reverse_proxy backend:8000 {
 			flush_interval -1
