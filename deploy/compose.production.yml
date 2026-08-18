@@ -1,0 +1,166 @@
+name: coreai-inference
+
+# Production stack for chat.coreai.uz. Only Caddy is exposed to the host;
+# Postgres/Redis/MinIO are internal-only. Config comes from deploy/.env.prod
+# (copy .env.prod.example). CoreAI talks to the central LiteLLM service below;
+# LiteLLM alone knows the raw inference worker endpoints.
+#
+#   cd deploy && cp .env.prod.example .env.prod   # then edit secrets + worker routes
+#   ./preflight.sh
+#   docker compose --env-file .env.prod -f compose.production.yml up -d --build
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ../frontend
+    restart: unless-stopped
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
+  # One-shot: apply DB migrations before the backend starts.
+  migrate:
+    build:
+      context: ../backend
+    command: alembic upgrade head
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  backend:
+    build:
+      context: ../backend
+    command: >
+      gunicorn app.main:app
+      -k uvicorn.workers.UvicornWorker
+      -w ${WEB_CONCURRENCY:-4}
+      -b 0.0.0.0:8000
+      --timeout 120 --graceful-timeout 30
+    restart: unless-stopped
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:v1.92.0
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    restart: unless-stopped
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    expose:
+      - "4000"
+    volumes:
+      - ../litellm/config.production.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    logging: *default-logging
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-coreai} -d $${POSTGRES_DB:-coreai}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    logging: *default-logging
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    volumes:
+      - miniodata:/data
+    logging: *default-logging
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    env_file: ${COREAI_PROD_ENV_FILE:-.env.prod}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do sleep 1; done;
+      mc mb --ignore-existing local/$${MINIO_BUCKET:-ocr-uploads};
+      echo 'minio bucket ready';
+      "
+    logging: *default-logging
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  caddy_data:
+  caddy_config:

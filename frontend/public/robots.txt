@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /c/
+Disallow: /console
+Disallow: /login
+Disallow: /register

@@ -1,0 +1,70 @@
+# GPU VM: raw OpenAI-compatible vLLM workers only. Both ports are loopback-bound;
+# local development reaches them through SSH and production through a private
+# network/tunnel. Authentication remains enforced by VLLM_API_KEY.
+
+x-vllm-common: &vllm-common
+  image: vllm/vllm-openai:v0.24.0
+  restart: unless-stopped
+  ipc: host
+  volumes:
+    - ${GEMMA_WEIGHTS:-/home/cloud/gemma/experiments/gemma-4-31B-it}:/models/gemma-4-31B-it:ro
+    - /home/cloud/inference/models/gemma-4-31B-it-assistant:/models/gemma-4-31B-it-assistant:ro
+    - /home/cloud/inference/models/Qwen3.6-35B-A3B-AWQ:/models/qwen3.6-35b-a3b:ro
+    - vllm-cache:/root/.cache/vllm
+  environment:
+    - VLLM_API_KEY=${VLLM_API_KEY:?set VLLM_API_KEY in .env}
+    - HF_HUB_OFFLINE=1
+    - VLLM_NO_USAGE_STATS=1
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else sys.exit(1)"]
+    interval: 30s
+    timeout: 10s
+    retries: 40
+    start_period: 600s
+
+services:
+  vllm-gemma:
+    <<: *vllm-common
+    container_name: vllm-gemma
+    command:
+      - /models/gemma-4-31B-it
+      - --served-model-name=gemma-4-31B-it
+      - --host=0.0.0.0
+      - --port=8000
+      - --api-key=${VLLM_API_KEY}
+      - --quantization=fp8
+      - --gpu-memory-utilization=${GEMMA_GPU_FRAC:-0.52}
+      - --max-model-len=${GEMMA_MAXLEN:-16384}
+      - --speculative-config={"model":"/models/gemma-4-31B-it-assistant","num_speculative_tokens":${GEMMA_SPEC_TOKENS:-6}}
+    ports:
+      - "127.0.0.1:18001:8000"
+
+  vllm-qwen:
+    <<: *vllm-common
+    container_name: vllm-qwen
+    command:
+      - /models/qwen3.6-35b-a3b
+      - --served-model-name=qwen3.6-35b-a3b
+      - --host=0.0.0.0
+      - --port=8000
+      - --api-key=${VLLM_API_KEY}
+      - --quantization=awq_marlin
+      - --gpu-memory-utilization=${QWEN_GPU_FRAC:-0.42}
+      - --max-model-len=${QWEN_MAXLEN:-16384}
+      - --speculative-config={"method":"mtp","num_speculative_tokens":${QWEN_SPEC_TOKENS:-2}}
+      - --enforce-eager
+    ports:
+      - "127.0.0.1:18002:8000"
+    depends_on:
+      vllm-gemma:
+        condition: service_healthy
+
+volumes:
+  vllm-cache:

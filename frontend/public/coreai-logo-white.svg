@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 0 156 58" width="160" height="60">
+  <path d="M 8,40 A 26,26 0 0,1 60,40" fill="none" stroke="#D4683A" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M 16,40 A 18,18 0 0,1 52,40" fill="none" stroke="#D4683A" stroke-width="3.2" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 24,40 A 10,10 0 0,1 44,40" fill="none" stroke="#D4683A" stroke-width="3.2" stroke-linecap="round" opacity="0.22"/>
+  <circle cx="34" cy="40" r="3.5" fill="#D4683A"/>
+  <text x="72" y="40" font-family="Outfit, sans-serif" font-weight="300" font-size="27" letter-spacing="-0.3" fill="#FFFFFF">Core</text>
+  <text x="129" y="40" font-family="Outfit, sans-serif" font-weight="300" font-size="27" letter-spacing="-0.3" fill="#D4683A">AI</text>
+</svg>

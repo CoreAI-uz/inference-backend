@@ -1,0 +1,174 @@
+name: coreai-inference
+
+# Real-inference development stack. CoreAI owns the sole LiteLLM gateway; model
+# traffic reaches raw vLLM workers through two loopback SSH forwards on the host.
+# Create .env and set VLLM_API_KEY before starting the stack.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: coreai
+      POSTGRES_PASSWORD: coreai
+      POSTGRES_DB: coreai
+    ports:
+      # Host port remapped (55432) to coexist with other local Postgres stacks.
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coreai -d coreai"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    # noeviction so rate-limit keys are never dropped under memory pressure.
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    ports:
+      # Host port remapped (56379) to coexist with other local Redis stacks.
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  # One-shot: wait for MinIO, create the OCR bucket, exit. Backend depends on this
+  # completing so the bucket always exists (dormant until the OCR track ships).
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do echo 'waiting for minio...'; sleep 1; done;
+      mc mb --ignore-existing local/ocr-uploads;
+      echo 'minio bucket ready';
+      "
+
+  # Central provider/routing boundary. CoreAI owns users, public API keys, policy,
+  # quotas, and the durable usage ledger; LiteLLM owns provider translation and
+  # model routing. It is not published externally in production.
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:v1.92.0
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      # Internal dev-only credential. Public cai_ keys terminate at CoreAI.
+      LITELLM_MASTER_KEY: sk-local-litellm-change-me
+      GEMMA_INFERENCE_BASE_URL: http://host.docker.internal:18001/v1
+      QWEN_INFERENCE_BASE_URL: http://host.docker.internal:18002/v1
+      VLLM_API_KEY: ${VLLM_API_KEY:?create .env and set VLLM_API_KEY}
+    ports:
+      - "14001:4000"
+    volumes:
+      - ./litellm/config.real.yaml:/app/config.yaml:ro
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+asyncpg://coreai:coreai@postgres:5432/coreai
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_DEV: "true"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      APP_ENV: dev
+      DEBUG: "true"
+      DATABASE_URL: postgresql+asyncpg://coreai:coreai@postgres:5432/coreai
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: ocr-uploads
+      MINIO_SECURE: "false"
+      # Single-quoted YAML scalar keeps the JSON's double quotes literal.
+      MODELS_CONFIG: '{"gemma4-31b-it":{"endpoint":"http://litellm:4000/v1","served_model_name":"gemma4-31b-it","api_key":"sk-local-litellm-change-me","max_context":16384,"display_name":"Gemma 4 31B","description":"Gemma 4 31B instruct — Uzbek, Russian, and English.","tags":["uzbek-russian"],"enabled":true},"qwen3.6-35b-a3b":{"endpoint":"http://litellm:4000/v1","served_model_name":"qwen3.6-35b-a3b","api_key":"sk-local-litellm-change-me","max_context":16384,"display_name":"Qwen3 35B","description":"Qwen3 35B (A3B) — strong reasoning and coding.","tags":["reasoning"],"enabled":true,"supports_thinking":true}}'
+      DEFAULT_MODEL_ID: gemma4-31b-it
+      SESSION_SECRET: dev-session-secret-change-me-at-least-32-bytes
+      JWT_SECRET: dev-jwt-secret-change-me-at-least-32-bytes
+      API_KEY_PEPPER: dev-api-key-pepper-change-me-at-least-32-bytes
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_PENDING_TTL_S: ${GOOGLE_PENDING_TTL_S:-600}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4321}
+      API_CONTENT_RETENTION_DAYS: ${API_CONTENT_RETENTION_DAYS:-30}
+    ports:
+      # Host port remapped (8008) to coexist with other local stacks on 8000.
+      - "8008:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev"
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      # `next dev` owns this volume. Production builds use `.next-build`, so even
+      # a validation build run inside this container cannot corrupt live assets.
+      - frontend_next:/app/.next
+      - frontend_build:/app/.next-build
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  pgdata:
+  miniodata:
+  frontend_node_modules:
+  frontend_next:
+  frontend_build:

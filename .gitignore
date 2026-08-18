@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Env / secrets
+.env
+.env.*
+!**/.env.*.example
+
+# Node / Next
+node_modules/
+.next/
+.next-build/
+out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Data / volumes
+pgdata/
+miniodata/
+redisdata/
+backups/
+*.pid
+*.sock
+
+# Local agent, OS, and editor state
+.claude/
+.codex/
+.agents/
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Design handoff bundle (reference only)
+design-handoff/
+*.zip
+
+# Internal product planning (local reference only)
+coreai-inference-build-brief.md
+docs/user-onboarding-google-auth-plan.md

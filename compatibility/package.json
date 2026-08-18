@@ -1,0 +1,11 @@
+{
+  "name": "coreai-openai-compatibility",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node openai_node.mjs"
+  },
+  "dependencies": {
+    "openai": "6.49.0"
+  }
+}

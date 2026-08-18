@@ -1,0 +1,38 @@
+# Reverse proxy for chat.coreai.uz + api.coreai.uz.
+# SITE_ADDRESS defaults to the prod domain (Caddy auto-provisions TLS via ACME).
+# For a local HTTP test, set SITE_ADDRESS=:8080 (Caddy serves plain HTTP, no ACME).
+
+{
+	email {$ACME_EMAIL:admin@coreai.uz}
+}
+
+# Public developer API. Keep this host backend-only so frontend routes and session
+# endpoints cannot accidentally become part of the public API surface.
+{$API_SITE_ADDRESS:api.coreai.uz} {
+	handle /v1/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+}
+
+{$SITE_ADDRESS:chat.coreai.uz} {
+	# API → FastAPI backend. flush_interval -1 disables response buffering so the
+	# chat SSE stream flushes token-by-token. Do NOT add `encode` here — gzip on
+	# text/event-stream re-buffers the stream.
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+
+	# Everything else → Next.js frontend (compression is fine here).
+	handle {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+}
