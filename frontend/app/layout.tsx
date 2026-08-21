@@ -8,6 +8,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "CoreAI Chat",
   description: "Chat with open models and build with the CoreAI inference API.",
+  icons: { icon: "/favicon.svg" },
 };
 
 // Set the saved theme before first paint to avoid a flash. Defaults to dark.
