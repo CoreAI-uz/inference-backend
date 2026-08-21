@@ -551,7 +551,10 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
         {/* conversation / empty */}
         <div ref={scrollRef} className="ca-scroll relative flex-1 overflow-y-auto">
           {isEmpty ? (
-            <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
+            <div
+              className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center"
+              style={{ paddingBottom: composerH + 48 }}
+            >
               <div className="w-full max-w-[620px] animate-fadeup">
                 <div className="mb-5 flex justify-center"><ArcLogo size={64} /></div>
                 <h1 className="m-0 mb-[10px]" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 42, lineHeight: 1.1, letterSpacing: "-0.01em", color: "var(--fg-primary)" }}>{me?.user?.display_name ? t("greetNamed", { name: me.user.display_name }) : t("greet")}</h1>
