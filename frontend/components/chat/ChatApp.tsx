@@ -551,10 +551,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
         {/* conversation / empty */}
         <div ref={scrollRef} className="ca-scroll relative flex-1 overflow-y-auto">
           {isEmpty ? (
-            <div
-              className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center"
-              style={{ paddingBottom: composerH + 48 }}
-            >
+            <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
               <div className="w-full max-w-[620px] animate-fadeup">
                 <div className="mb-5 flex justify-center"><ArcLogo size={64} /></div>
                 <h1 className="m-0 mb-[10px]" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 42, lineHeight: 1.1, letterSpacing: "-0.01em", color: "var(--fg-primary)" }}>{me?.user?.display_name ? t("greetNamed", { name: me.user.display_name }) : t("greet")}</h1>
@@ -634,7 +631,11 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
 
         {/* composer — floats over the message list; the container's own bottom-fade bg
             blends scrolling messages into it without covering the input card. */}
-        <div ref={composerRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-6 pb-4 pt-8" style={{ background: "linear-gradient(to top, var(--bg-page) 60%, transparent)" }}>
+        <div
+          ref={composerRef}
+          className={`pointer-events-none inset-x-0 bottom-0 z-20 shrink-0 px-6 pb-4 pt-8 ${isEmpty ? "relative" : "absolute"}`}
+          style={{ background: "linear-gradient(to top, var(--bg-page) 60%, transparent)" }}
+        >
           {limit && (
             <div className="pointer-events-auto absolute bottom-[calc(100%+4px)] left-1/2 z-20 w-[min(440px,calc(100%-48px))] -translate-x-1/2 animate-fadeup rounded-2xl border bg-elevated p-[22px] shadow-xl" style={{ borderColor: "var(--brand-orange)" }}>
               <div className="flex items-start gap-[13px]">
