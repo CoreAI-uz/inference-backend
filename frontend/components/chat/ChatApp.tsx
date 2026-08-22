@@ -13,6 +13,7 @@ import {
   selectVersion,
 } from "@/lib/api/resources";
 import type { ConversationListItem, ModelInfo } from "@/lib/api/types";
+import { trackChatStartedConversion } from "@/lib/google-ads";
 import {
   activePath,
   buildTree,
@@ -179,6 +180,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     let reasonStart = 0;          // ms timestamp of the first reasoning token
     let reasonMs: number | null = null;
     let newConvId = convId;
+    let completed = false;
     const assistantModel = selectedModel?.display_name ?? modelId;
 
     try {
@@ -200,6 +202,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
           // Auto-generated on the first turn — surface it in the sidebar right away.
           if (isRegistered) void refreshConversations();
         } else if (ev.type === "done") {
+          completed = true;
           if (ev.conversation_id) newConvId = ev.conversation_id;
         } else if (ev.type === "error") {
           if (ev.code === "rate_limited") setLimit(isRegistered ? "user" : "anon");
@@ -240,6 +243,9 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
       if (!reconciled) {
         if (acc || accReason) optimisticCommit(base, optimisticUser, acc, accReason, reasonMs, assistantModel);
         else setPending(null);
+      }
+      if (completed && acc.trim() && body.conversation_id == null && optimisticUser !== null) {
+        trackChatStartedConversion();
       }
       setStreamText("");
       setStreamReasoning("");

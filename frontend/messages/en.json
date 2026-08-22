@@ -37,9 +37,9 @@
     "privacy": "Tashkent · tsh-1",
     "privacyNote": "Processed in Uzbekistan · free chats may be reviewed to improve CoreAI",
     "learnMore": "Learn more",
-    "greet": "Salom. What are we working on?",
-    "greetNamed": "Salom, {name}. What are we working on?",
-    "greetSub": "Chat in Uzbek, Russian, or English. Your chats are processed in Uzbekistan.",
+    "greet": "What can I help you with?",
+    "greetNamed": "{name}, what can I help you with?",
+    "greetSub": "Ask questions, write, translate, analyze, or code in Uzbek, Russian, or English.",
     "wordmarkSub": "Frontier open models, running in Tashkent.",
     "chips": [
       "Translate this to Uzbek",
@@ -48,7 +48,7 @@
       "Explain diffusion models"
     ],
     "placeholder": "Message CoreAI…",
-    "hint": "CoreAI runs open models on our GPUs in Tashkent. Check important information.",
+    "hint": "CoreAI can make mistakes. Check important information.",
     "sources": "Sources",
     "tokens": "tokens",
     "queued": "High demand — you're in the queue",

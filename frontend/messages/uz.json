@@ -37,9 +37,9 @@
     "privacy": "Toshkent · tsh-1",
     "privacyNote": "Oʻzbekistonda qayta ishlanadi · CoreAI xizmatini yaxshilash uchun bepul chatlar koʻrib chiqilishi mumkin",
     "learnMore": "Batafsil",
-    "greet": "Salom. Nima ustida ishlaymiz?",
-    "greetNamed": "Salom, {name}. Nima ustida ishlaymiz?",
-    "greetSub": "Oʻzbek, rus yoki ingliz tilida suhbatlashing. Chatlaringiz Oʻzbekistonda qayta ishlanadi.",
+    "greet": "Sizga qanday yordam bera olaman?",
+    "greetNamed": "{name}, sizga qanday yordam bera olaman?",
+    "greetSub": "Oʻzbek, rus yoki ingliz tilida savol bering, matn yozing, tarjima qiling, tahlil qiling yoki kod bilan ishlang.",
     "wordmarkSub": "Toshkentda ishlaydigan ilgʻor ochiq modellar.",
     "chips": [
       "Oʻzbekchaga tarjima qil",
@@ -48,7 +48,7 @@
       "Diffuziya modellari qanday ishlaydi?"
     ],
     "placeholder": "CoreAIga yozing…",
-    "hint": "CoreAI ochiq modellarni Toshkentdagi oʻz GPUlarida ishlatadi. Muhim maʼlumotlarni tekshirib koʻring.",
+    "hint": "CoreAI xato qilishi mumkin. Muhim maʼlumotlarni tekshirib koʻring.",
     "sources": "Manbalar",
     "tokens": "token",
     "queued": "Talab yuqori — soʻrovingiz navbatda",
