@@ -10,6 +10,7 @@ import {
   completeGoogleRegistration,
   getPendingGoogleRegistration,
 } from "@/lib/api/resources";
+import { trackSignupConversion } from "@/lib/google-ads";
 import { authPath } from "@/lib/navigation";
 
 export function GoogleRegistrationForm({ next = "/" }: { next?: string }) {
@@ -45,6 +46,7 @@ export function GoogleRegistrationForm({ next = "/" }: { next?: string }) {
         locale,
         legalTermsAccepted,
       );
+      trackSignupConversion();
       const onboardingPath =
         next === "/" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(next)}`;
       router.push(onboardingPath);

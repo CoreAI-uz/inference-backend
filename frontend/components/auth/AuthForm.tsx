@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { ApiError } from "@/lib/api/client";
 import { login as apiLogin, register as apiRegister } from "@/lib/api/resources";
+import { trackSignupConversion } from "@/lib/google-ads";
 import { authPath } from "@/lib/navigation";
 
 import { GoogleSignInButton } from "./GoogleSignInButton";
@@ -30,6 +31,7 @@ export function AuthForm({ mode, next = "/" }: { mode: "login" | "register"; nex
     try {
       if (mode === "register") {
         await apiRegister(displayName, email, password, locale, legalTermsAccepted);
+        trackSignupConversion();
         const onboardingPath = next === "/" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(next)}`;
         router.push(onboardingPath);
       } else {

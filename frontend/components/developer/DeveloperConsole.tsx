@@ -21,6 +21,7 @@ import type {
   DeveloperUsage,
   Me,
 } from "@/lib/api/types";
+import { trackApiKeyConversion } from "@/lib/google-ads";
 
 const card = "rounded-2xl border border-line-subtle bg-elevated shadow-sm";
 
@@ -80,6 +81,7 @@ export function DeveloperConsole() {
     setError(null);
     try {
       const result = await createApiKey(name.trim());
+      trackApiKeyConversion();
       setKeys((current) => [result, ...current]);
       setCreated(result);
       setName("");

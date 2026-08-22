@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 
+import { GoogleAdsTag } from "@/components/analytics/GoogleAdsTag";
 import { fontVars } from "@/lib/fonts";
 import "./globals.css";
 
@@ -27,6 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
         </NextIntlClientProvider>
+        <GoogleAdsTag />
       </body>
     </html>
   );
