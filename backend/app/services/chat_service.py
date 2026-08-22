@@ -296,14 +296,13 @@ async def stream_chat_completion(
     if client_gone:
         return
 
-    # Auto-title the first turn of a new conversation (ChatGPT style). Registered only —
-    # anonymous chats have no sidebar, so a title call would be wasted inference. The
-    # conversation already has a trimmed-first-message title as a fallback; this upgrades
-    # it in place. Best-effort: a failure/timeout just leaves the fallback.
+    # Auto-title the first turn of a new conversation (ChatGPT style). This applies to
+    # both account-owned and anonymous session-owned conversations so a chat keeps the
+    # same useful title when an anonymous session is later claimed during registration.
+    # Best-effort: a failure/timeout just leaves the trimmed-first-message fallback.
     title_out: str | None = None
     should_title = (
         settings.auto_title
-        and identity.user_id is not None
         and conversation_id is None
         and mode == "user"
         and conv_id_out is not None

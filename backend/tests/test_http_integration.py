@@ -666,6 +666,39 @@ async def test_sse_persists_reply_and_live_limit_is_not_lifetime_usage(http_clie
         await _cleanup(session_ids=(session_id,))
 
 
+async def test_anonymous_first_turn_gets_generated_title(http_client, monkeypatch):
+    client, _app = http_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "auto_title", True)
+    me = (await client.get("/api/auth/me")).json()
+    session_id = me["session_id"]
+
+    try:
+        response = await client.post(
+            "/api/chat/completions",
+            json={
+                "model": "gemma-mock",
+                "user_content": "plan a private GPU deployment",
+            },
+        )
+        assert response.status_code == 200
+
+        title_event = _sse_payload(response.text, "title")
+        done = _sse_payload(response.text, "done")
+        assert title_event["conversation_id"] == done["conversation_id"]
+        assert title_event["title"] == "Plan A Private GPU Deployment"
+        assert done["title"] == title_event["title"]
+
+        async with SessionLocal() as db:
+            conversation = await db.get(Conversation, uuid.UUID(done["conversation_id"]))
+            assert conversation is not None
+            assert conversation.user_id is None
+            assert conversation.session_id == session_id
+            assert conversation.title == title_event["title"]
+    finally:
+        await _cleanup(session_ids=(session_id,))
+
+
 async def test_metering_failure_cannot_roll_back_streamed_chat(http_client, monkeypatch):
     client, _app = http_client
     me = (await client.get("/api/auth/me")).json()
