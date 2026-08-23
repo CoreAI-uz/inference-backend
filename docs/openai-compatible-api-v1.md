@@ -100,6 +100,9 @@ changed.
 ## Limits and metering
 
 - Web chat and API usage debit the same account allowance.
+- `qwen3.8-27b` supports a 262,144-token context window. `gemma4-31b-it` supports 16,384 tokens.
+- The model validates the complete prompt against its token context window and returns
+  `context_length_exceeded` when the prompt is too large.
 - Request-rate enforcement remains a Redis token bucket. Token usage is written to the durable
   `usage_events` ledger with source, API key, request ID, latency, and response status.
 - Cached-input and reasoning-token details are copied into their dedicated ledger columns when the

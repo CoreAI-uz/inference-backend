@@ -1023,6 +1023,47 @@ async def test_openai_chat_nonstream_stream_and_usage(http_client):
         await _cleanup(user_ids=(user_id,))
 
 
+async def test_openai_api_accepts_long_input_for_high_context_models(http_client, monkeypatch):
+    client, app = http_client
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "models_config",
+        {
+            "qwen3.8-27b": ModelConfig(
+                endpoint="http://mock-vllm/v1",
+                served_model_name="gemma-mock",
+                max_context=262_144,
+                display_name="Qwen3.8 27B",
+            )
+        },
+    )
+    monkeypatch.setattr(settings, "default_model_id", "qwen3.8-27b")
+
+    me = await _register(client)
+    user_id = uuid.UUID(me["user"]["id"])
+    created_key = await client.post("/api/developer/keys", json={"name": "Long context"})
+    credential = created_key.json()["key"]
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as sdk:
+            response = await sdk.post(
+                "/v1/chat/completions",
+                headers={"Authorization": f"Bearer {credential}"},
+                json={
+                    "model": "qwen3.8-27b",
+                    "messages": [{"role": "user", "content": "x" * 30_000}],
+                },
+            )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["model"] == "gemma-mock"
+    finally:
+        await _cleanup(user_ids=(user_id,))
+
+
 async def test_official_openai_python_sdk_nonstream_stream_and_models(http_client):
     session, app = http_client
     me = await _register(session)

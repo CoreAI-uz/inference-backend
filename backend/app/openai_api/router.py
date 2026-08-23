@@ -240,15 +240,6 @@ async def chat_completions(
 
     messages = [message.model_dump() for message in payload.messages]
     retained_request = payload.model_dump(mode="json", exclude_none=True)
-    input_chars = sum(len(message["content"]) for message in messages)
-    if input_chars > get_settings().max_chat_input_chars:
-        raise OpenAIAPIError(
-            400,
-            "This request exceeds the maximum supported input length.",
-            param="messages",
-            code="context_length_exceeded",
-            headers=rate_headers,
-        )
     moderation = await moderate_input(messages, principal.identity)
     if not moderation.allowed:
         raise OpenAIAPIError(

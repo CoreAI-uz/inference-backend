@@ -9,7 +9,7 @@ x-vllm-common: &vllm-common
   volumes:
     - ${GEMMA_WEIGHTS:-/home/cloud/gemma/experiments/gemma-4-31B-it}:/models/gemma-4-31B-it:ro
     - /home/cloud/inference/models/gemma-4-31B-it-assistant:/models/gemma-4-31B-it-assistant:ro
-    - /home/cloud/inference/models/Qwen3.6-35B-A3B-AWQ:/models/qwen3.6-35b-a3b:ro
+    - /home/cloud/inference/models/Qwen3.8-27B-AWQ-INT4:/models/qwen3.8-27b:ro
     - vllm-cache:/root/.cache/vllm
   environment:
     - VLLM_API_KEY=${VLLM_API_KEY:?set VLLM_API_KEY in .env}
@@ -50,15 +50,19 @@ services:
     <<: *vllm-common
     container_name: vllm-qwen
     command:
-      - /models/qwen3.6-35b-a3b
-      - --served-model-name=qwen3.6-35b-a3b
+      - /models/qwen3.8-27b
+      - --served-model-name=qwen3.8-27b
       - --host=0.0.0.0
       - --port=8000
       - --api-key=${VLLM_API_KEY}
-      - --quantization=awq_marlin
-      - --gpu-memory-utilization=${QWEN_GPU_FRAC:-0.42}
-      - --max-model-len=${QWEN_MAXLEN:-16384}
-      - --speculative-config={"method":"mtp","num_speculative_tokens":${QWEN_SPEC_TOKENS:-2}}
+      - --gpu-memory-utilization=${QWEN_GPU_FRAC:-0.38}
+      - --max-model-len=${QWEN_MAXLEN:-auto}
+      - --max-num-seqs=${QWEN_MAX_NUM_SEQS:-1}
+      - --kv-cache-dtype=${QWEN_KV_DTYPE:-fp8}
+      - --language-model-only
+      - --reasoning-parser=qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser=qwen3_coder
       - --enforce-eager
     ports:
       - "127.0.0.1:18002:8000"
