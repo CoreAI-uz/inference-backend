@@ -32,7 +32,7 @@ Returns the enabled public model IDs in the standard list envelope:
         "reasoning": {
           "supported": true,
           "efforts": ["none", "low", "medium", "xhigh"],
-          "default_effort": "xhigh"
+          "default_effort": "low"
         },
         "tools": {
           "supported": true,
@@ -79,9 +79,9 @@ log probabilities, and multiple choices are not supported.
 `qwen3.8-27b` supports these `reasoning_effort` values:
 
 - `none` — answer without a reasoning trace
-- `low` — short reasoning
+- `low` — short reasoning and the model default
 - `medium` — balanced reasoning
-- `xhigh` — deep reasoning and the model default
+- `xhigh` — deep reasoning
 
 The equivalent object form is `"reasoning": {"enabled": true, "effort": "medium"}`. Set
 `enabled` to `false` to disable reasoning. Do not send `reasoning` and `reasoning_effort` together.

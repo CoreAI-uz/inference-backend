@@ -199,9 +199,9 @@
     "reasoningBody": "Qwen3.8 27B soʻrov uchun sarflanadigan hisoblash hajmini boshqarishga imkon beradi. Yuqori daraja murakkab tahlil va kodlash uchun, past daraja esa tezroq javob olish uchun mos.",
     "reasoningLevel": {
       "none": "Fikrlash matnisiz javob",
-      "low": "Qisqa fikrlash",
+      "low": "Qisqa fikrlash; standart qiymat",
       "medium": "Muvozanatli fikrlash",
-      "xhigh": "Chuqur fikrlash; standart qiymat"
+      "xhigh": "Chuqur fikrlash"
     },
     "reasoningResponse": "JSON javobida fikrlash choices[0].message.reasoning maydonida, oqimda esa choices[0].delta.reasoning maydonida contentdan alohida keladi. Fikrlash tokenlari chiqish tokenlari soniga kiradi.",
     "toolTitle": "Funksiyalarni chaqirish",

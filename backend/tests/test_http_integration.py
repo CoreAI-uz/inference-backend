@@ -774,7 +774,7 @@ async def test_reasoning_efforts_and_response_normalization(http_client, monkeyp
             assert qwen["capabilities"]["reasoning"] == {
                 "supported": True,
                 "efforts": ["none", "low", "medium", "xhigh"],
-                "default_effort": "xhigh",
+                "default_effort": "low",
             }
 
             nonstream = await sdk.post(

@@ -128,7 +128,7 @@ curl https://inference-api.coreai.uz/v1/models \
 
 ## Reasoning effort
 
-Qwen3.8 27B supports `none`, `low`, `medium`, and `xhigh`. The default is `xhigh`.
+Qwen3.8 27B supports `none`, `low`, `medium`, and `xhigh`. The default is `low`.
 
 ```bash
 curl https://inference-api.coreai.uz/v1/chat/completions \

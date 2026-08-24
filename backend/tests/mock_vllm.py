@@ -163,6 +163,21 @@ async def chat_completions(request: Request):
     stream = bool(body.get("stream", False))
     include_usage = bool((body.get("stream_options") or {}).get("include_usage", True))
 
+    # Production routes through LiteLLM, which rejects model-specific OpenAI-style
+    # parameters unless the application explicitly permits them to pass through.
+    if body.get("reasoning_effort") and "reasoning_effort" not in body.get(
+        "allowed_openai_params", []
+    ):
+        return JSONResponse(
+            {
+                "error": {
+                    "message": "mock: reasoning_effort was not allowed through LiteLLM",
+                    "type": "invalid_request_error",
+                }
+            },
+            status_code=400,
+        )
+
     fault, latency = _resolve_fault(request, body)
 
     if fault == "error_503":

@@ -34,7 +34,7 @@ class ModelConfig(BaseModel):
     reasoning_efforts: list[Literal["none", "low", "medium", "xhigh"]] = Field(
         default_factory=list
     )
-    default_reasoning_effort: Literal["none", "low", "medium", "xhigh"] = "xhigh"
+    default_reasoning_effort: Literal["none", "low", "medium", "xhigh"] = "low"
     # Extra request-body params merged into every completion (e.g. per-model sampling).
     extra_body: dict = Field(default_factory=dict)
 

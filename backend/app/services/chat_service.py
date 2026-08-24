@@ -103,6 +103,10 @@ async def stream_chat_completion(
         }
         if enabled:
             extra["reasoning_effort"] = reasoning_effort
+            # LiteLLM validates OpenAI-compatible parameters before forwarding the
+            # request. This model supports the parameter at the vLLM boundary, so
+            # explicitly allow it through the internal gateway.
+            extra["allowed_openai_params"] = ["reasoning_effort"]
         expect_reasoning = enabled
 
     upstream_headers: dict[str, str] = {}

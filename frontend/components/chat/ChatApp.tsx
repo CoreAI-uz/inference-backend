@@ -80,7 +80,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
   const [railOpen, setRailOpen] = useState(false);
   const [modelMenu, setModelMenu] = useState(false);
   const [reasoningMenu, setReasoningMenu] = useState(false);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("xhigh");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -153,7 +153,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
       ?? (selectedModel?.supports_thinking ? ["none", "low", "medium", "xhigh"] : []),
     [selectedModel],
   );
-  const defaultReasoningEffort = selectedModel?.default_reasoning_effort ?? "xhigh";
+  const defaultReasoningEffort = selectedModel?.default_reasoning_effort ?? "low";
 
   useEffect(() => {
     if (

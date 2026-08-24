@@ -173,6 +173,9 @@ def _upstream_body(payload: ChatCompletionIn, cfg: ModelConfig) -> dict[str, Any
         }
         if enabled:
             body["reasoning_effort"] = effort
+            # This is consumed by LiteLLM and is not part of CoreAI's public API.
+            # It permits the model-supported parameter to reach the vLLM worker.
+            body["allowed_openai_params"] = ["reasoning_effort"]
 
     # Accurate streaming metering requires the terminal usage event. It is removed
     # from the public stream below when the caller did not request include_usage.

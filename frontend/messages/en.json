@@ -199,9 +199,9 @@
     "reasoningBody": "Qwen3.8 27B can spend more or less computation on a request. Higher levels suit complex analysis and coding; lower levels return faster.",
     "reasoningLevel": {
       "none": "Answer without a reasoning trace",
-      "low": "Short reasoning",
+      "low": "Short reasoning; model default",
       "medium": "Balanced reasoning",
-      "xhigh": "Deep reasoning; model default"
+      "xhigh": "Deep reasoning"
     },
     "reasoningResponse": "JSON responses return reasoning in choices[0].message.reasoning. Streams return it in choices[0].delta.reasoning, separately from content. The completion token count includes reasoning tokens.",
     "toolTitle": "Tool calling",
