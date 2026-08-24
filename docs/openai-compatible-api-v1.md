@@ -27,7 +27,19 @@ Returns the enabled public model IDs in the standard list envelope:
       "id": "coreai-model-id",
       "object": "model",
       "created": 0,
-      "owned_by": "coreai"
+      "owned_by": "coreai",
+      "capabilities": {
+        "reasoning": {
+          "supported": true,
+          "efforts": ["none", "low", "medium", "xhigh"],
+          "default_effort": "xhigh"
+        },
+        "tools": {
+          "supported": true,
+          "tool_choice": ["none", "auto", "required"],
+          "parallel_tool_calls": true
+        }
+      }
     }
   ]
 }
@@ -38,7 +50,7 @@ Returns the enabled public model IDs in the standard list envelope:
 Required fields:
 
 - `model`
-- `messages` containing text-only `system`, `user`, or `assistant` messages
+- `messages` containing `system`, `user`, `assistant`, or `tool` messages
 
 Supported request fields in v1:
 
@@ -52,18 +64,74 @@ Supported request fields in v1:
 - `frequency_penalty`
 - `presence_penalty`
 - `user`
+- `reasoning_effort`
+- `reasoning`
+- `tools`
+- `tool_choice`
+- `parallel_tool_calls`
 
 Unknown fields and known-but-unsupported capabilities are rejected with an
-`invalid_request_error`; they are not silently ignored. The first release does not support tool
-calls, structured output, multimodal content, log probabilities, multiple choices, or exposing
-model reasoning.
+`invalid_request_error`; they are not silently ignored. Structured output, multimodal content,
+log probabilities, and multiple choices are not supported.
+
+### Reasoning controls
+
+`qwen3.8-27b` supports these `reasoning_effort` values:
+
+- `none` — answer without a reasoning trace
+- `low` — short reasoning
+- `medium` — balanced reasoning
+- `xhigh` — deep reasoning and the model default
+
+The equivalent object form is `"reasoning": {"enabled": true, "effort": "medium"}`. Set
+`enabled` to `false` to disable reasoning. Do not send `reasoning` and `reasoning_effort` together.
+
+Non-streaming responses expose the trace as `choices[0].message.reasoning`. Streaming responses
+use `choices[0].delta.reasoning`, separately from `content`. Assistant messages may include
+`reasoning` when replaying earlier turns; `reasoning_content` is accepted as an input alias.
 
 Non-streaming responses use `object: "chat.completion"`. Streaming responses contain only
 `data: {chat.completion.chunk...}` events followed by `data: [DONE]`. When
 `stream_options.include_usage` is true, the final JSON chunk has an empty `choices` array and the
 aggregate usage. CoreAI's browser-only `queued`, `reasoning`, and `done` events never appear here.
-Successful JSON and SSE payloads are relayed from LiteLLM so additive OpenAI-compatible response
-fields (for example token-detail fields) are preserved.
+Additive OpenAI-compatible response fields, including token-detail fields, are preserved.
+
+### Tool calling
+
+`qwen3.8-27b` supports function tools. Each tool uses this shape:
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "get_weather",
+    "description": "Get the current weather for a city",
+    "parameters": {
+      "type": "object",
+      "properties": {"city": {"type": "string"}},
+      "required": ["city"]
+    }
+  }
+}
+```
+
+`tool_choice` accepts `none`, `auto`, `required`, or
+`{"type":"function","function":{"name":"get_weather"}}`. A tool-call response places calls in
+`choices[0].message.tool_calls` and uses `finish_reason: "tool_calls"`. Execute each function in
+your application, then append the assistant message and one `tool` message per result:
+
+```json
+{
+  "role": "tool",
+  "tool_call_id": "call_abc123",
+  "content": "{\"temperature_c\":18}"
+}
+```
+
+For streaming responses, call fragments arrive in `choices[0].delta.tool_calls`. Accumulate them by
+`index` and concatenate `function.arguments` in order. The final chunk uses
+`finish_reason: "tool_calls"`. `parallel_tool_calls` controls whether one response may contain
+multiple calls.
 
 ## Errors and observability
 

@@ -36,6 +36,7 @@ from app.models import (
 )
 from app.services.data_policy import FREE_DATA_POLICY, LEGAL_ACCEPTANCE_SCOPE
 from app.workers.sweep import sweep_api_content
+from tests.mock_vllm import MOCK_REASONING
 from tests.mock_vllm import app as mock_vllm_app
 
 
@@ -495,6 +496,17 @@ def _sse_payload(body: str, event: str) -> dict:
     return json.loads(data_line.removeprefix("data: "))
 
 
+def _sse_payloads(body: str, event: str) -> list[dict]:
+    marker = f"event: {event}\n"
+    payloads = []
+    for frame in body.split("\n\n"):
+        if not frame.startswith(marker):
+            continue
+        data_line = next(line for line in frame.splitlines() if line.startswith("data: "))
+        payloads.append(json.loads(data_line.removeprefix("data: ")))
+    return payloads
+
+
 async def test_registration_login_and_conversation_ownership(http_client):
     owner, app = http_client
     me = await _register(owner)
@@ -664,6 +676,354 @@ async def test_sse_persists_reply_and_live_limit_is_not_lifetime_usage(http_clie
         assert limited.status_code == 429
     finally:
         await _cleanup(session_ids=(session_id,))
+
+
+async def test_sse_streams_and_persists_structured_reasoning(http_client, monkeypatch):
+    client, _app = http_client
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "models_config",
+        {
+            "qwen3.8-mock": ModelConfig(
+                endpoint="http://mock-vllm/v1",
+                served_model_name="gemma-mock",
+                max_context=262_144,
+                display_name="Qwen3.8 (mock)",
+                supports_thinking=True,
+                supports_tools=True,
+            )
+        },
+    )
+    me = (await client.get("/api/auth/me")).json()
+    session_id = me["session_id"]
+
+    try:
+        response = await client.post(
+            "/api/chat/completions",
+            json={
+                "model": "qwen3.8-mock",
+                "user_content": "exercise structured reasoning",
+                "reasoning_effort": "medium",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        reasoning = "".join(
+            payload["content"] for payload in _sse_payloads(response.text, "reasoning")
+        )
+        answer = "".join(payload["content"] for payload in _sse_payloads(response.text, "delta"))
+        done = _sse_payload(response.text, "done")
+        assert reasoning == MOCK_REASONING
+        assert answer.startswith("Hello! This is a mock streaming response")
+
+        async with SessionLocal() as db:
+            assistant = await db.get(Message, uuid.UUID(done["message_id"]))
+            usage = (
+                await db.execute(
+                    select(UsageEvent).where(
+                        UsageEvent.message_id == uuid.UUID(done["message_id"])
+                    )
+                )
+            ).scalar_one()
+        assert assistant is not None
+        assert assistant.reasoning == MOCK_REASONING
+        assert assistant.content == answer
+        assert assistant.reasoning_ms is not None
+        assert usage.reasoning_tokens > 0
+    finally:
+        await _cleanup(session_ids=(session_id,))
+
+
+async def test_reasoning_efforts_and_response_normalization(http_client, monkeypatch):
+    client, app = http_client
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "models_config",
+        {
+            "qwen3.8-mock": ModelConfig(
+                endpoint="http://mock-vllm/v1",
+                served_model_name="qwen3.8-mock",
+                max_context=262_144,
+                display_name="Qwen3.8 (mock)",
+                supports_thinking=True,
+            ),
+            "gemma-mock": ModelConfig(
+                endpoint="http://mock-vllm/v1",
+                served_model_name="gemma-mock",
+                max_context=16_384,
+                display_name="Gemma (mock)",
+            ),
+        },
+    )
+    monkeypatch.setattr(settings, "default_model_id", "qwen3.8-mock")
+
+    me = await _register(client)
+    user_id = uuid.UUID(me["user"]["id"])
+    created_key = await client.post("/api/developer/keys", json={"name": "Reasoning"})
+    credential = created_key.json()["key"]
+    headers = {"Authorization": f"Bearer {credential}"}
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as sdk:
+            models = (await sdk.get("/v1/models", headers=headers)).json()["data"]
+            qwen = next(model for model in models if model["id"] == "qwen3.8-mock")
+            assert qwen["capabilities"]["reasoning"] == {
+                "supported": True,
+                "efforts": ["none", "low", "medium", "xhigh"],
+                "default_effort": "xhigh",
+            }
+
+            nonstream = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "qwen3.8-mock",
+                    "messages": [{"role": "user", "content": "reason carefully"}],
+                    "reasoning_effort": "medium",
+                },
+            )
+            assert nonstream.status_code == 200, nonstream.text
+            message = nonstream.json()["choices"][0]["message"]
+            assert message["reasoning"] == MOCK_REASONING
+            assert "reasoning_content" not in message
+            assert (
+                nonstream.json()["usage"]["completion_tokens_details"]["reasoning_tokens"]
+                > 0
+            )
+
+            streamed = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "qwen3.8-mock",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": "Earlier answer",
+                            "reasoning_content": "Earlier reasoning",
+                        },
+                        {"role": "user", "content": "continue"},
+                    ],
+                    "reasoning": {"enabled": True, "effort": "low"},
+                    "stream": True,
+                },
+            )
+            assert streamed.status_code == 200, streamed.text
+            chunks = [
+                json.loads(line.removeprefix("data: "))
+                for line in streamed.text.splitlines()
+                if line.startswith("data: {")
+            ]
+            deltas = [choice["delta"] for chunk in chunks for choice in chunk["choices"]]
+            assert "".join(delta.get("reasoning", "") for delta in deltas) == MOCK_REASONING
+            assert all("reasoning_content" not in delta for delta in deltas)
+
+            disabled = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "qwen3.8-mock",
+                    "messages": [{"role": "user", "content": "answer directly"}],
+                    "reasoning": {"enabled": False},
+                },
+            )
+            assert disabled.status_code == 200
+            assert "reasoning" not in disabled.json()["choices"][0]["message"]
+
+            unsupported = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "gemma-mock",
+                    "messages": [{"role": "user", "content": "reason"}],
+                    "reasoning_effort": "low",
+                },
+            )
+            assert unsupported.status_code == 400
+            assert unsupported.json()["error"]["param"] == "reasoning_effort"
+    finally:
+        await _cleanup(user_ids=(user_id,))
+
+
+async def test_tool_calling_nonstream_stream_and_followup(http_client, monkeypatch):
+    client, app = http_client
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "models_config",
+        {
+            "qwen3.8-mock": ModelConfig(
+                endpoint="http://mock-vllm/v1",
+                served_model_name="qwen3.8-mock",
+                max_context=262_144,
+                display_name="Qwen3.8 (mock)",
+                supports_thinking=True,
+                supports_tools=True,
+            ),
+            "gemma-mock": ModelConfig(
+                endpoint="http://mock-vllm/v1",
+                served_model_name="gemma-mock",
+                max_context=16_384,
+                display_name="Gemma (mock)",
+            ),
+        },
+    )
+    me = await _register(client)
+    user_id = uuid.UUID(me["user"]["id"])
+    created_key = await client.post("/api/developer/keys", json={"name": "Tools"})
+    credential = created_key.json()["key"]
+    headers = {"Authorization": f"Bearer {credential}"}
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the current weather for a city.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+        }
+    ]
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as sdk:
+            models = (await sdk.get("/v1/models", headers=headers)).json()["data"]
+            qwen = next(model for model in models if model["id"] == "qwen3.8-mock")
+            assert qwen["capabilities"]["tools"] == {
+                "supported": True,
+                "tool_choice": ["none", "auto", "required"],
+                "parallel_tool_calls": True,
+            }
+
+            first = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "qwen3.8-mock",
+                    "messages": [
+                        {"role": "user", "content": "What is the weather in Tashkent?"}
+                    ],
+                    "tools": tools,
+                    "tool_choice": {
+                        "type": "function",
+                        "function": {"name": "get_weather"},
+                    },
+                    "parallel_tool_calls": True,
+                    "reasoning_effort": "none",
+                },
+            )
+            assert first.status_code == 200, first.text
+            first_choice = first.json()["choices"][0]
+            assert first_choice["finish_reason"] == "tool_calls"
+            assert first_choice["message"]["content"] is None
+            tool_call = first_choice["message"]["tool_calls"][0]
+            assert tool_call["function"] == {
+                "name": "get_weather",
+                "arguments": '{"city":"Tashkent"}',
+            }
+
+            followup = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "qwen3.8-mock",
+                    "messages": [
+                        {"role": "user", "content": "What is the weather in Tashkent?"},
+                        first_choice["message"],
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": '{"temperature_c":31}',
+                        },
+                    ],
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "reasoning_effort": "none",
+                },
+            )
+            assert followup.status_code == 200, followup.text
+            assert followup.json()["choices"][0]["finish_reason"] == "stop"
+            assert "31" in followup.json()["choices"][0]["message"]["content"]
+
+            streamed = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "qwen3.8-mock",
+                    "messages": [
+                        {"role": "user", "content": "Call the weather function."}
+                    ],
+                    "tools": tools,
+                    "tool_choice": "required",
+                    "reasoning_effort": "none",
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                },
+            )
+            assert streamed.status_code == 200, streamed.text
+            chunks = [
+                json.loads(line.removeprefix("data: "))
+                for line in streamed.text.splitlines()
+                if line.startswith("data: {")
+            ]
+            deltas = [choice["delta"] for chunk in chunks for choice in chunk["choices"]]
+            streamed_calls = [
+                call for delta in deltas for call in delta.get("tool_calls", [])
+            ]
+            assert streamed_calls[0]["function"]["name"] == "get_weather"
+            assert "".join(
+                call.get("function", {}).get("arguments", "") for call in streamed_calls
+            ) == '{"city":"Tashkent"}'
+            assert any(
+                choice.get("finish_reason") == "tool_calls"
+                for chunk in chunks
+                for choice in chunk["choices"]
+            )
+            assert chunks[-1]["usage"]["total_tokens"] > 0
+
+            unsupported = await sdk.post(
+                "/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "gemma-mock",
+                    "messages": [{"role": "user", "content": "Call a tool."}],
+                    "tools": tools,
+                },
+            )
+            assert unsupported.status_code == 400
+            assert unsupported.json()["error"]["param"] == "tools"
+
+        async with SessionLocal() as db:
+            records = list(
+                (
+                    await db.execute(
+                        select(ApiContentRecord)
+                        .where(ApiContentRecord.user_id == user_id)
+                        .order_by(ApiContentRecord.created_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert any(
+            record.response_body.get("choices", [{}])[0]
+            .get("message", {})
+            .get("tool_calls")
+            for record in records
+        )
+    finally:
+        await _cleanup(user_ids=(user_id,))
 
 
 async def test_anonymous_first_turn_gets_generated_title(http_client, monkeypatch):

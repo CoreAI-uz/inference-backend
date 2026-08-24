@@ -71,10 +71,14 @@ print(response.choices[0].message.content)`,
 const responseExample = `{
   "id": "chatcmpl_...",
   "object": "chat.completion",
-  "model": "gemma4-31b-it",
+  "model": "qwen3.8-27b",
   "choices": [{
     "index": 0,
-    "message": {"role": "assistant", "content": "Salom!"},
+    "message": {
+      "role": "assistant",
+      "reasoning": "I should answer in the user's language...",
+      "content": "Salom!"
+    },
     "finish_reason": "stop"
   }],
   "usage": {
@@ -94,6 +98,74 @@ const streamExample = `curl -N ${API_BASE}/chat/completions \\
     "stream_options": {"include_usage": true}
   }'`;
 
+const reasoningExample = `curl ${API_BASE}/chat/completions \\
+  -H "Authorization: Bearer $COREAI_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "qwen3.8-27b",
+    "messages": [{"role": "user", "content": "Compare two deployment plans."}],
+    "reasoning_effort": "medium"
+  }'`;
+
+const toolRequestExample = `curl ${API_BASE}/chat/completions \\
+  -H "Authorization: Bearer $COREAI_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "qwen3.8-27b",
+    "messages": [{"role": "user", "content": "What is the weather in Tashkent?"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather for a city",
+        "parameters": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    }],
+    "tool_choice": "auto"
+  }'`;
+
+const toolResponseExample = `{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [{
+        "id": "call_abc123",
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "arguments": "{\\"city\\":\\"Tashkent\\"}"
+        }
+      }]
+    },
+    "finish_reason": "tool_calls"
+  }]
+}`;
+
+const toolResultExample = `{
+  "model": "qwen3.8-27b",
+  "messages": [
+    {"role": "user", "content": "What is the weather in Tashkent?"},
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [{
+        "id": "call_abc123",
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "arguments": "{\\"city\\":\\"Tashkent\\"}"
+        }
+      }]
+    },
+    {"role": "tool", "tool_call_id": "call_abc123", "content": "{\\"temperature_c\\":18}"}
+  ]
+}`;
+
 const parameters = [
   ["model", "string", "docs.required", "docs.paramModel"],
   ["messages", "array", "docs.required", "docs.paramMessages"],
@@ -103,6 +175,11 @@ const parameters = [
   ["max_tokens", "integer", "docs.modelDefault", "docs.paramMaxTokens"],
   ["stop", "string | array", "null", "docs.paramStop"],
   ["seed", "integer", "null", "docs.paramSeed"],
+  ["reasoning_effort", "string", "docs.reasoningDefault", "docs.paramReasoningEffort"],
+  ["reasoning", "object", "null", "docs.paramReasoning"],
+  ["tools", "array", "null", "docs.paramTools"],
+  ["tool_choice", "string | object", "auto / none", "docs.paramToolChoice"],
+  ["parallel_tool_calls", "boolean", "true", "docs.paramParallelToolCalls"],
 ] as const;
 
 export function ApiDocs() {
@@ -194,6 +271,29 @@ export function ApiDocs() {
             <p className="mt-4 text-sm leading-6 text-fg-secondary">{t("docs.streamingProtocol")}</p>
           </section>
 
+          <section id="reasoning" className="mt-16 scroll-mt-24">
+            <SectionTitle title={t("docs.reasoningTitle")} body={t("docs.reasoningBody")} />
+            <div className="mt-5 grid gap-3 sm:grid-cols-4">
+              {(["none", "low", "medium", "xhigh"] as const).map((effort) => (
+                <Fact key={effort} label={effort} value={t(`docs.reasoningLevel.${effort}`)} mono />
+              ))}
+            </div>
+            <CodeBlock code={reasoningExample} copy={() => void copy("reasoning", reasoningExample)} copied={copied === "reasoning"} t={t} compact />
+            <Callout>{t("docs.reasoningResponse")}</Callout>
+          </section>
+
+          <section id="tool-calling" className="mt-16 scroll-mt-24">
+            <SectionTitle title={t("docs.toolTitle")} body={t("docs.toolBody")} />
+            <h3 className="mb-3 mt-8 text-base font-medium">{t("docs.toolRequestTitle")}</h3>
+            <CodeBlock code={toolRequestExample} copy={() => void copy("tool-request", toolRequestExample)} copied={copied === "tool-request"} t={t} />
+            <h3 className="mb-3 mt-8 text-base font-medium">{t("docs.toolResponseTitle")}</h3>
+            <CodeBlock code={toolResponseExample} copy={() => void copy("tool-response", toolResponseExample)} copied={copied === "tool-response"} t={t} />
+            <h3 className="mb-3 mt-8 text-base font-medium">{t("docs.toolResultTitle")}</h3>
+            <CodeBlock code={toolResultExample} copy={() => void copy("tool-result", toolResultExample)} copied={copied === "tool-result"} t={t} />
+            <Callout>{t("docs.toolResultNote")}</Callout>
+            <p className="mt-4 text-sm leading-6 text-fg-secondary">{t("docs.toolStreamNote")}</p>
+          </section>
+
           <section id="data-retention" className="mt-16 scroll-mt-24">
             <SectionTitle title={t("docs.dataTitle")} body={t("docs.dataBody")} />
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -220,7 +320,7 @@ export function ApiDocs() {
 
 function DocsNav() {
   const t = useTranslations("docs");
-  const links = [["overview", "overviewTitle"], ["quickstart", "quickstartTitle"], ["authentication", "authTitle"], ["models", "modelsTitle"], ["chat-completions", "chatTitle"], ["streaming", "streamingTitle"], ["data-retention", "dataTitle"], ["errors", "errorsTitle"]];
+  const links = [["overview", "overviewTitle"], ["quickstart", "quickstartTitle"], ["authentication", "authTitle"], ["models", "modelsTitle"], ["chat-completions", "chatTitle"], ["streaming", "streamingTitle"], ["reasoning", "reasoningTitle"], ["tool-calling", "toolTitle"], ["data-retention", "dataTitle"], ["errors", "errorsTitle"]];
   return <nav className="flex flex-col gap-1">{links.map(([id, key]) => <a key={id} href={`#${id}`} className="rounded-lg px-3 py-2 text-sm text-fg-secondary no-underline hover:bg-elevated hover:text-fg-primary">{t(key)}</a>)}</nav>;
 }
 

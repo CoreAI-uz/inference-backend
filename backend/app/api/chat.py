@@ -48,6 +48,14 @@ async def chat_completions(
         raise APIError(404, ErrorCode.MODEL_NOT_FOUND,
                        f"unknown or unavailable model: {payload.model!r}") from None
 
+    reasoning_effort = payload.resolved_reasoning_effort(cfg.default_reasoning_effort)
+    if reasoning_effort not in (cfg.reasoning_efforts or ["none"]):
+        raise APIError(
+            400,
+            ErrorCode.INVALID_REQUEST,
+            f"reasoning effort {reasoning_effort!r} is not supported by this model",
+        )
+
     # --- Resolve conversation + optional branch parent (ownership → 404) ---
     conversation_id: uuid.UUID | None = None
     conv = None
@@ -127,6 +135,6 @@ async def chat_completions(
         mode=mode,
         attach_parent_id=attach_parent_id,
         new_user_content=new_user_content,
-        thinking=payload.thinking,
+        reasoning_effort=reasoning_effort,
     )
     return StreamingResponse(generator, media_type="text/event-stream", headers=SSE_HEADERS)

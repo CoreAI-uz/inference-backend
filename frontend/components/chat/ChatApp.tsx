@@ -12,7 +12,7 @@ import {
   renameConversation as apiRename,
   selectVersion,
 } from "@/lib/api/resources";
-import type { ConversationListItem, ModelInfo } from "@/lib/api/types";
+import type { ConversationListItem, ModelInfo, ReasoningEffort } from "@/lib/api/types";
 import { trackChatStartedConversion } from "@/lib/google-ads";
 import {
   activePath,
@@ -79,7 +79,8 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
   const [convId, setConvId] = useState<string | null>(initialConversationId ?? null);
   const [railOpen, setRailOpen] = useState(false);
   const [modelMenu, setModelMenu] = useState(false);
-  const [thinking, setThinking] = useState(false);
+  const [reasoningMenu, setReasoningMenu] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("xhigh");
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -147,6 +148,21 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     () => models.find((m) => m.id === modelId),
     [models, modelId],
   );
+  const supportedReasoningEfforts: ReasoningEffort[] = useMemo(
+    () => selectedModel?.reasoning_efforts
+      ?? (selectedModel?.supports_thinking ? ["none", "low", "medium", "xhigh"] : []),
+    [selectedModel],
+  );
+  const defaultReasoningEffort = selectedModel?.default_reasoning_effort ?? "xhigh";
+
+  useEffect(() => {
+    if (
+      selectedModel?.supports_thinking &&
+      !supportedReasoningEfforts.includes(reasoningEffort)
+    ) {
+      setReasoningEffort(defaultReasoningEffort);
+    }
+  }, [selectedModel, reasoningEffort, supportedReasoningEfforts, defaultReasoningEffort]);
 
   const filteredConvos = useMemo(
     () => (search ? conversations.filter((c) => (c.title ?? "").toLowerCase().includes(search.toLowerCase())) : conversations),
@@ -283,7 +299,11 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     const content = (text ?? input).trim();
     if (!content || streaming) return;
     setInput("");
-    const body: StreamChatBody = { model: modelId, user_content: content, thinking };
+    const body: StreamChatBody = {
+      model: modelId,
+      user_content: content,
+      reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined,
+    };
     if (convId) body.conversation_id = convId;
     void runStream(body, activePath(tree), content);
   }
@@ -295,7 +315,13 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     const idx = path.findIndex((x) => x.id === node.id);
     const base = idx >= 0 ? path.slice(0, idx) : path;
     void runStream(
-      { model: modelId, conversation_id: convId, parent_id: node.parent_id, user_content: content, thinking },
+      {
+        model: modelId,
+        conversation_id: convId,
+        parent_id: node.parent_id,
+        user_content: content,
+        reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined,
+      },
       base,
       content,
     );
@@ -306,7 +332,16 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     if (streaming || !convId || node.parent_id == null) return;
     const idx = path.findIndex((x) => x.id === node.id);
     const base = idx >= 0 ? path.slice(0, idx) : path;
-    void runStream({ model: modelId, conversation_id: convId, parent_id: node.parent_id, thinking }, base, null);
+    void runStream(
+      {
+        model: modelId,
+        conversation_id: convId,
+        parent_id: node.parent_id,
+        reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined,
+      },
+      base,
+      null,
+    );
   }
 
   // Switch to a sibling version and persist the choice (so a reload restores it).
@@ -672,10 +707,10 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
                 style={{ minHeight: 30, maxHeight: 160 }}
               />
               <div className="flex items-end justify-between gap-2 px-1 pl-[6px]">
-                {/* left: model picker (opens upward) + thinking toggle */}
+                {/* left: model picker + reasoning effort (both open upward) */}
                 <div className="flex min-w-0 items-center gap-1">
                   <div className="relative">
-                    <button onClick={() => setModelMenu((v) => !v)} className="flex cursor-pointer items-center gap-[7px] rounded-[9px] px-2 py-[6px] text-[12.5px] text-fg-secondary transition-colors hover:bg-elevated-2">
+                    <button onClick={() => { setReasoningMenu(false); setModelMenu((v) => !v); }} className="flex cursor-pointer items-center gap-[7px] rounded-[9px] px-2 py-[6px] text-[12.5px] text-fg-secondary transition-colors hover:bg-elevated-2">
                       <svg viewBox="0 0 56 56" width="15" height="15"><path d="M 6,38 A 22,22 0 0,1 50,38" fill="none" stroke="var(--ca-logo)" strokeWidth="5" strokeLinecap="round" /><path d="M 15,38 A 13,13 0 0,1 41,38" fill="none" stroke="var(--ca-logo)" strokeWidth="5" strokeLinecap="round" opacity="0.45" /><circle cx="28" cy="38" r="4.5" fill="var(--ca-logo)" /></svg>
                       <span className="max-w-[150px] truncate" style={{ fontFamily: "var(--font-mono)" }}>{selectedModel?.display_name ?? modelId ?? "…"}</span>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--fg-tertiary)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
@@ -704,18 +739,41 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
                     )}
                   </div>
                   {selectedModel?.supports_thinking && (
-                    <button
-                      onClick={() => setThinking((v) => !v)}
-                      title={t("thinking")}
-                      aria-pressed={thinking}
-                      className="flex shrink-0 cursor-pointer items-center gap-[6px] rounded-[9px] border px-[10px] py-[6px] text-[12.5px] transition-colors"
-                      style={thinking
-                        ? { borderColor: "var(--brand-orange)", background: "var(--brand-orange-tint)", color: "var(--brand-orange-hi)" }
-                        : { borderColor: "var(--border-subtle)", color: "var(--fg-tertiary)" }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.5.5 1 1.2 1 2V16h6v-.5c0-.8.5-1.5 1-2A6 6 0 0 0 12 3z" /></svg>
-                      <span>{t("thinking")}</span>
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={() => { setModelMenu(false); setReasoningMenu((v) => !v); }}
+                        title={t("reasoningEffort")}
+                        aria-expanded={reasoningMenu}
+                        className="flex shrink-0 cursor-pointer items-center gap-[6px] rounded-[9px] border px-[9px] py-[6px] text-[12.5px] transition-colors"
+                        style={reasoningEffort !== "none"
+                          ? { borderColor: "var(--brand-orange)", background: "var(--brand-orange-tint)", color: "var(--brand-orange-hi)" }
+                          : { borderColor: "var(--border-subtle)", color: "var(--fg-tertiary)" }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.5.5 1 1.2 1 2V16h6v-.5c0-.8.5-1.5 1-2A6 6 0 0 0 12 3z" /></svg>
+                        <span>{t(`reasoningLevel.${reasoningEffort}`)}</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      {reasoningMenu && (
+                        <>
+                          <div onClick={() => setReasoningMenu(false)} className="fixed inset-0 z-[25]" />
+                          <div className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[190px] animate-fadeup rounded-xl border border-line-default bg-elevated p-[6px] shadow-lg">
+                            <div className="px-[10px] pb-[6px] pt-2 text-[11px] uppercase tracking-[0.08em] text-fg-tertiary">{t("reasoningEffort")}</div>
+                            {supportedReasoningEfforts.map((effort) => (
+                              <button
+                                key={effort}
+                                onClick={() => { setReasoningEffort(effort); setReasoningMenu(false); }}
+                                className="flex w-full cursor-pointer items-center gap-[9px] rounded-[9px] border-none bg-transparent px-[10px] py-[9px] text-left text-[13px] text-fg-secondary transition-colors hover:bg-elevated-2 hover:text-fg-primary"
+                              >
+                                <span className="w-4 shrink-0">
+                                  {effort === reasoningEffort && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-orange-hi)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>}
+                                </span>
+                                <span>{t(`reasoningLevel.${effort}`)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 {/* right: attach + send/stop */}

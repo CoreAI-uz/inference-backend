@@ -115,7 +115,7 @@ services:
       MINIO_BUCKET: ocr-uploads
       MINIO_SECURE: "false"
       # Single-quoted YAML scalar keeps the JSON's double quotes literal.
-      MODELS_CONFIG: '{"gemma4-31b-it":{"endpoint":"http://litellm:4000/v1","served_model_name":"gemma4-31b-it","api_key":"sk-local-litellm-change-me","max_context":16384,"display_name":"Gemma 4 31B","description":"Gemma 4 31B instruct — Uzbek, Russian, and English.","tags":["uzbek-russian"],"enabled":true},"qwen3.8-27b":{"endpoint":"http://litellm:4000/v1","served_model_name":"qwen3.8-27b","api_key":"sk-local-litellm-change-me","max_context":262144,"display_name":"Qwen3.8 27B","description":"Qwen3.8 27B — 262K context, reasoning, coding, and tool use.","tags":["262k-context","reasoning","coding","tools"],"enabled":true,"supports_thinking":true}}'
+      MODELS_CONFIG: '{"gemma4-31b-it":{"endpoint":"http://litellm:4000/v1","served_model_name":"gemma4-31b-it","api_key":"sk-local-litellm-change-me","max_context":16384,"display_name":"Gemma 4 31B","description":"Gemma 4 31B instruct — Uzbek, Russian, and English.","tags":["uzbek-russian"],"enabled":true},"qwen3.8-27b":{"endpoint":"http://litellm:4000/v1","served_model_name":"qwen3.8-27b","api_key":"sk-local-litellm-change-me","max_context":262144,"display_name":"Qwen3.8 27B","description":"Qwen3.8 27B — 262K context, reasoning, coding, and tool use.","tags":["262k-context","reasoning","coding","tools"],"enabled":true,"supports_thinking":true,"supports_tools":true,"reasoning_efforts":["none","low","medium","xhigh"],"default_reasoning_effort":"xhigh"}}'
       DEFAULT_MODEL_ID: gemma4-31b-it
       SESSION_SECRET: dev-session-secret-change-me-at-least-32-bytes
       JWT_SECRET: dev-jwt-secret-change-me-at-least-32-bytes

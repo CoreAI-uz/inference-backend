@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+ReasoningEffort = Literal["none", "low", "medium", "xhigh"]
 
 
 class ChatMessage(BaseModel):
@@ -29,5 +31,19 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     parent_id: str | None = None
     user_content: str | None = None
-    # Request chain-of-thought (only honored by models with supports_thinking).
-    thinking: bool = False
+    reasoning_effort: ReasoningEffort | None = None
+    # Compatibility with clients that shipped before effort levels were available.
+    thinking: bool | None = None
+
+    @model_validator(mode="after")
+    def _one_reasoning_control(self):
+        if self.reasoning_effort is not None and self.thinking is not None:
+            raise ValueError("use either reasoning_effort or thinking, not both")
+        return self
+
+    def resolved_reasoning_effort(self, default: ReasoningEffort) -> ReasoningEffort:
+        if self.reasoning_effort is not None:
+            return self.reasoning_effort
+        if self.thinking is not None:
+            return default if self.thinking else "none"
+        return default

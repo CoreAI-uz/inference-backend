@@ -126,13 +126,87 @@ curl https://inference-api.coreai.uz/v1/models \
   -H "Authorization: Bearer $COREAI_API_KEY"
 ```
 
+## Reasoning effort
+
+Qwen3.8 27B supports `none`, `low`, `medium`, and `xhigh`. The default is `xhigh`.
+
+```bash
+curl https://inference-api.coreai.uz/v1/chat/completions \
+  -H "Authorization: Bearer $COREAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.8-27b",
+    "messages": [{"role": "user", "content": "Compare two deployment plans."}],
+    "reasoning_effort": "medium"
+  }'
+```
+
+Read `choices[0].message.reasoning` in a JSON response. In a stream, reasoning arrives under
+`choices[0].delta.reasoning` and the final answer arrives under `choices[0].delta.content`.
+
+The object form is also accepted:
+
+```json
+{"reasoning": {"enabled": true, "effort": "low"}}
+```
+
+## Tool calling
+
+`qwen3.8-27b` accepts function definitions through `tools`. The model returns a structured call;
+your application runs the function and sends its result back in a `tool` message.
+
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get the current weather for a city",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}]
+
+messages = [{"role": "user", "content": "What is the weather in Tashkent?"}]
+completion = client.chat.completions.create(
+    model="qwen3.8-27b",
+    messages=messages,
+    tools=tools,
+    tool_choice="auto",
+)
+
+assistant = completion.choices[0].message
+messages.append(assistant)
+
+for call in assistant.tool_calls or []:
+    result = '{"temperature_c": 18}'  # Run call.function.name in your application.
+    messages.append({
+        "role": "tool",
+        "tool_call_id": call.id,
+        "content": result,
+    })
+
+final = client.chat.completions.create(
+    model="qwen3.8-27b",
+    messages=messages,
+    tools=tools,
+)
+print(final.choices[0].message.content)
+```
+
+`tool_choice` accepts `none`, `auto`, `required`, or a named function. Set
+`parallel_tool_calls` to control whether the model may return multiple calls. In a stream, call
+fragments arrive in `choices[0].delta.tool_calls`; concatenate `function.arguments` fragments in
+order before parsing the JSON.
+
 ## Current compatibility boundary
 
-The first release supports text Chat Completions, including streaming, common sampling controls,
-stop sequences, seeds, and usage reporting. It intentionally rejects tools, structured output,
-images, log probabilities, multiple choices, and unknown request fields instead of silently
-ignoring them. See the [v1 contract](openai-compatible-api-v1.md) for the exact field list and error
-behavior.
+The API supports text Chat Completions, streaming, reasoning controls, function tools, common
+sampling controls, stop sequences, seeds, and usage reporting. Structured output, images, log
+probabilities, multiple choices, and unknown request fields are rejected. See the
+[v1 contract](openai-compatible-api-v1.md) for the exact field list and error behavior.
 
 Keep the `x-request-id` response header when reporting a problem. You may also send your own short,
 printable `X-Client-Request-Id` for correlation.

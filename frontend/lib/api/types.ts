@@ -1,9 +1,14 @@
+export type ReasoningEffort = "none" | "low" | "medium" | "xhigh";
+
 export interface ModelInfo {
   id: string;
   display_name: string;
   description: string | null;
   tags: string[];
   supports_thinking: boolean;
+  supports_tools: boolean;
+  reasoning_efforts: ReasoningEffort[];
+  default_reasoning_effort: ReasoningEffort;
 }
 
 export interface UserOut {
@@ -169,7 +174,7 @@ export type ChatEvent =
   | { type: "delta"; content: string; role?: string }
   | { type: "reasoning"; content: string }
   | { type: "queued"; position?: number; message?: string }
-  | { type: "usage"; prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  | { type: "usage"; prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_input_tokens?: number; reasoning_tokens?: number }
   | { type: "title"; conversation_id: string; title: string }
   | { type: "done"; conversation_id?: string | null; message_id?: string | null; finish_reason: string; title?: string | null }
   | { type: "error"; code: string; message: string; retry_after?: number };

@@ -34,6 +34,7 @@ from app.gateway.metering import record_usage
 from app.gateway.registry import ModelNotFoundError, get_registry
 from app.gateway.safety import estimate_tokens, moderate_input, trim_to_context
 from app.models.conversation import Conversation
+from app.schemas.chat import ReasoningEffort
 from app.services.conversations import NotOwnedError, persist_branch_turn
 from app.services.titles import generate_title
 
@@ -47,8 +48,9 @@ _RETRYABLE = (
     httpx.PoolTimeout,
 )
 
-# Reasoning models emit their chain-of-thought, then this marker, then the answer.
-# (The opening <think> is prefilled by the chat template, so only the close appears.)
+# Legacy reasoning streams may contain chain-of-thought followed by this marker.
+# Current vLLM reasoning parsers expose thinking as a separate ``reasoning`` delta,
+# but the marker path remains as a compatibility fallback for unparsed workers.
 _THINK_CLOSE = "</think>"
 
 
@@ -75,7 +77,7 @@ async def stream_chat_completion(
     mode: str,
     attach_parent_id: uuid.UUID | None,
     new_user_content: str | None,
-    thinking: bool,
+    reasoning_effort: ReasoningEffort,
 ) -> AsyncGenerator[str, None]:
     settings = get_settings()
 
@@ -86,21 +88,30 @@ async def stream_chat_completion(
 
     outbound = trim_to_context(messages, cfg.max_context)
 
-    # Chain-of-thought: only for models that support it. When on, the model reasons up to
-    # a </think> marker then answers; the backend splits the two so reasoning is shown
-    # collapsibly and kept out of the persisted context.
+    # Chain-of-thought: only for models that support it. Parsed reasoning is shown
+    # collapsibly and kept out of the persisted context. Raw marker-delimited output is
+    # supported below for older workers.
     extra: dict | None = None
     expect_reasoning = False
     if cfg.supports_thinking:
-        extra = {"chat_template_kwargs": {"enable_thinking": thinking}}
-        expect_reasoning = thinking
+        enabled = reasoning_effort != "none"
+        extra = {
+            "chat_template_kwargs": {
+                "enable_thinking": enabled,
+                "preserve_thinking": enabled,
+            }
+        }
+        if enabled:
+            extra["reasoning_effort"] = reasoning_effort
+        expect_reasoning = enabled
 
     upstream_headers: dict[str, str] = {}
 
     client = VLLMClient(http)
     answer_parts: list[str] = []
     reasoning_parts: list[str] = []
-    in_reasoning = expect_reasoning  # content before </think> is reasoning
+    in_reasoning = expect_reasoning  # legacy content before </think> is reasoning
+    structured_reasoning_seen = False
     split_buf = ""  # holds a tail that might be a partial </think>
     answer_started = False  # trim leading whitespace until the answer begins
     usage: dict | None = None
@@ -127,13 +138,29 @@ async def stream_chat_completion(
                     client_gone = True
                     finish_reason = "stopped"
                     break
+                if chunk.reasoning:
+                    structured_reasoning_seen = True
+                    in_reasoning = False
+                    if first_token_at is None:
+                        first_token_at = round(time.monotonic() - req_start, 3)
+                    if reason_start_at is None:
+                        reason_start_at = time.monotonic()
+                    reasoning_parts.append(chunk.reasoning)
+                    yield sse(StreamEvent.REASONING, {"content": chunk.reasoning})
                 if chunk.content:
                     if first_token_at is None:
                         first_token_at = round(time.monotonic() - req_start, 3)
                         if in_reasoning:
                             reason_start_at = time.monotonic()
                     piece = ""
-                    if in_reasoning:
+                    if structured_reasoning_seen:
+                        # A reasoning parser already separated the two channels, so
+                        # content is the user-visible answer even though it contains no
+                        # literal </think> boundary.
+                        if reason_ms is None and reason_start_at is not None:
+                            reason_ms = int((time.monotonic() - reason_start_at) * 1000)
+                        piece = chunk.content
+                    elif in_reasoning:
                         # Route content into the reasoning channel until </think>.
                         split_buf += chunk.content
                         cut = split_buf.find(_THINK_CLOSE)
@@ -229,6 +256,10 @@ async def stream_chat_completion(
     if completion_tokens is None:
         completion_tokens = estimate_tokens(reasoning_text + assistant_text)
     total_tokens = prompt_tokens + completion_tokens
+    prompt_details = (usage or {}).get("prompt_tokens_details") or {}
+    completion_details = (usage or {}).get("completion_tokens_details") or {}
+    cached_input_tokens = int(prompt_details.get("cached_tokens", 0) or 0)
+    reasoning_tokens = int(completion_details.get("reasoning_tokens", 0) or 0)
 
     log.info(
         "chat_completed",
@@ -236,6 +267,7 @@ async def stream_chat_completion(
         anon=identity.is_anon,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        reasoning_tokens=reasoning_tokens,
         finish_reason=finish_reason,
         ttft_s=first_token_at,
     )
@@ -286,6 +318,8 @@ async def stream_chat_completion(
                 identity=identity,
                 input_tokens=prompt_tokens,
                 output_tokens=completion_tokens,
+                cached_input_tokens=cached_input_tokens,
+                reasoning_tokens=reasoning_tokens,
                 message_id=assistant.id,
                 commit=True,
             )
@@ -338,6 +372,8 @@ async def stream_chat_completion(
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "cached_input_tokens": cached_input_tokens,
+            "reasoning_tokens": reasoning_tokens,
         },
     )
     if title_out:

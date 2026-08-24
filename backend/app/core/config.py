@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import os
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,11 +28,27 @@ class ModelConfig(BaseModel):
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
-    # Model can produce chain-of-thought. When true the UI offers a per-request thinking
-    # toggle and the backend splits the reasoning (before </think>) from the answer.
+    # Model can produce a separately parsed reasoning trace.
     supports_thinking: bool = False
+    supports_tools: bool = False
+    reasoning_efforts: list[Literal["none", "low", "medium", "xhigh"]] = Field(
+        default_factory=list
+    )
+    default_reasoning_effort: Literal["none", "low", "medium", "xhigh"] = "xhigh"
     # Extra request-body params merged into every completion (e.g. per-model sampling).
     extra_body: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _reasoning_capabilities(self):
+        if self.supports_thinking:
+            if not self.reasoning_efforts:
+                self.reasoning_efforts = ["none", "low", "medium", "xhigh"]
+            if self.default_reasoning_effort not in self.reasoning_efforts:
+                raise ValueError("default_reasoning_effort must be listed in reasoning_efforts")
+        else:
+            self.reasoning_efforts = []
+            self.default_reasoning_effort = "none"
+        return self
 
     def resolved_api_key(self) -> str | None:
         """Resolve LiteLLM-style ``os.environ/NAME`` secret references lazily."""

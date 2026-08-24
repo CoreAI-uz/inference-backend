@@ -2,7 +2,7 @@
 // POST, cookies, and AbortController for stop). Yields the named events distinctly so
 // the UI can render queued / rate-limit / error as three separate, honest states.
 
-import type { ChatEvent, ChatRequestMessage } from "./types";
+import type { ChatEvent, ChatRequestMessage, ReasoningEffort } from "./types";
 
 export interface StreamChatBody {
   model: string;
@@ -12,8 +12,7 @@ export interface StreamChatBody {
   // Attach point. Include (even as null, to edit the first message) to branch
   // explicitly; omit for a plain new turn (server uses the active leaf).
   parent_id?: string | null;
-  // Request chain-of-thought (only honored by models with supports_thinking).
-  thinking?: boolean;
+  reasoning_effort?: ReasoningEffort;
   // Legacy new-turn shape; server only reads the last user message from it.
   messages?: ChatRequestMessage[];
 }

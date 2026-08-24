@@ -26,7 +26,7 @@ from app.gateway.safety import estimate_tokens, moderate_input
 from app.models import ApiContentRecord
 from app.openai_api.auth import APIPrincipal, require_api_key
 from app.openai_api.errors import OpenAIAPIError
-from app.openai_api.schemas import ChatCompletionIn
+from app.openai_api.schemas import ChatCompletionIn, ReasoningEffort
 from app.services.data_policy import FREE_DATA_POLICY
 
 router = APIRouter(prefix="/v1", tags=["OpenAI compatible"])
@@ -85,7 +85,7 @@ def _service_unavailable(headers: dict[str, str]) -> OpenAIAPIError:
 
 
 def _usage(
-    messages: list[dict[str, str]],
+    request_body: dict[str, Any],
     completion_chars: int,
     upstream: dict[str, Any] | None,
 ) -> dict[str, int]:
@@ -93,7 +93,7 @@ def _usage(
     prompt = raw.get("prompt_tokens")
     completion = raw.get("completion_tokens")
     if prompt is None:
-        prompt = sum(estimate_tokens(message["content"]) for message in messages)
+        prompt = estimate_tokens(json.dumps(request_body, ensure_ascii=False, default=str))
     if completion is None:
         completion = max(0, completion_chars // 4)
 
@@ -161,16 +161,54 @@ async def _persist_api_request(
 
 
 def _upstream_body(payload: ChatCompletionIn, cfg: ModelConfig) -> dict[str, Any]:
-    body = payload.model_dump(exclude_none=True)
+    body = payload.model_dump(exclude_none=True, exclude={"reasoning", "reasoning_effort"})
     body["model"] = cfg.served_model_name
+    body["messages"] = [message.upstream() for message in payload.messages]
     if cfg.supports_thinking:
-        body["chat_template_kwargs"] = {"enable_thinking": False}
+        effort = payload.resolved_reasoning_effort(cfg.default_reasoning_effort)
+        enabled = effort != "none"
+        body["chat_template_kwargs"] = {
+            "enable_thinking": enabled,
+            "preserve_thinking": enabled,
+        }
+        if enabled:
+            body["reasoning_effort"] = effort
 
     # Accurate streaming metering requires the terminal usage event. It is removed
     # from the public stream below when the caller did not request include_usage.
     if payload.stream:
         body["stream_options"] = {**body.get("stream_options", {}), "include_usage": True}
     return body
+
+
+def _normalize_reasoning_fields(value: Any) -> Any:
+    """Expose one stable reasoning field across compatible upstreams."""
+    if isinstance(value, list):
+        return [_normalize_reasoning_fields(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    normalized = {key: _normalize_reasoning_fields(item) for key, item in value.items()}
+    if "reasoning_content" in normalized:
+        normalized.setdefault("reasoning", normalized["reasoning_content"])
+        normalized.pop("reasoning_content", None)
+    return normalized
+
+
+def _reasoning_metadata(cfg: ModelConfig) -> dict[str, Any]:
+    return {
+        "supported": cfg.supports_thinking,
+        "efforts": cfg.reasoning_efforts,
+        "default_effort": cfg.default_reasoning_effort,
+    }
+
+
+def _tool_metadata(cfg: ModelConfig) -> dict[str, Any]:
+    return {
+        "supported": cfg.supports_tools,
+        "tool_choice": ["none", "auto", "required"] if cfg.supports_tools else [],
+        "parallel_tool_calls": cfg.supports_tools,
+    }
 
 
 def _upstream_headers(cfg: ModelConfig) -> dict[str, str]:
@@ -211,8 +249,17 @@ async def list_models(_principal: APIPrincipal = Depends(require_api_key)) -> di
     return {
         "object": "list",
         "data": [
-            {"id": model_id, "object": "model", "created": 0, "owned_by": "coreai"}
-            for model_id, _cfg in get_registry().list_enabled()
+            {
+                "id": model_id,
+                "object": "model",
+                "created": 0,
+                "owned_by": "coreai",
+                "capabilities": {
+                    "reasoning": _reasoning_metadata(cfg),
+                    "tools": _tool_metadata(cfg),
+                },
+            }
+            for model_id, cfg in get_registry().list_enabled()
         ],
     }
 
@@ -238,7 +285,28 @@ async def chat_completions(
             headers=rate_headers,
         ) from None
 
-    messages = [message.model_dump() for message in payload.messages]
+    effort: ReasoningEffort = payload.resolved_reasoning_effort(
+        cfg.default_reasoning_effort
+    )
+    if effort not in (cfg.reasoning_efforts or ["none"]):
+        raise OpenAIAPIError(
+            400,
+            f"Reasoning effort '{effort}' is not supported by model '{model_id}'.",
+            param="reasoning_effort",
+            code="unsupported_value",
+            headers=rate_headers,
+        )
+
+    if payload.uses_tools() and not cfg.supports_tools:
+        raise OpenAIAPIError(
+            400,
+            f"Tool calling is not supported by model '{model_id}'.",
+            param="tools",
+            code="unsupported_value",
+            headers=rate_headers,
+        )
+
+    messages = [message.upstream() for message in payload.messages]
     retained_request = payload.model_dump(mode="json", exclude_none=True)
     moderation = await moderate_input(messages, principal.identity)
     if not moderation.allowed:
@@ -279,7 +347,6 @@ async def chat_completions(
                 model_id=model_id,
                 principal=principal,
                 include_usage=bool(payload.stream_options and payload.stream_options.include_usage),
-                messages=messages,
                 request_id=request_id,
                 started=started,
                 request_body=retained_request,
@@ -299,8 +366,15 @@ async def chat_completions(
         raw = upstream.json()
     finally:
         await upstream.aclose()
-    normalized = _usage(messages, 0, raw.get("usage") if isinstance(raw, dict) else None)
-    retained_response = raw if isinstance(raw, dict) else {"body": content.decode(errors="replace")}
+    public_raw = _normalize_reasoning_fields(raw) if isinstance(raw, dict) else raw
+    normalized = _usage(
+        retained_request,
+        0,
+        raw.get("usage") if isinstance(raw, dict) else None,
+    )
+    retained_response = (
+        public_raw if isinstance(public_raw, dict) else {"body": content.decode(errors="replace")}
+    )
     await _persist_api_request(
         principal=principal,
         model_id=model_id,
@@ -312,7 +386,11 @@ async def chat_completions(
         response_body=retained_response,
     )
     return Response(
-        content=content,
+        content=(
+            json.dumps(public_raw, ensure_ascii=False, separators=(",", ":")).encode()
+            if isinstance(public_raw, dict)
+            else content
+        ),
         status_code=upstream.status_code,
         headers=_public_headers(rate_headers, upstream),
     )
@@ -330,7 +408,6 @@ async def _stream_response(
     model_id: str,
     principal: APIPrincipal,
     include_usage: bool,
-    messages: list[dict[str, str]],
     request_id: str,
     started: float,
     request_body: dict[str, Any],
@@ -341,12 +418,15 @@ async def _stream_response(
     event_lines: list[str] = []
     done_frame: bytes | None = None
     completion_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_calls: dict[int, dict[str, Any]] = {}
     finish_reason: str | None = None
 
     async def emit(lines: list[str]) -> AsyncGenerator[bytes, None]:
         nonlocal usage_raw, completion_chars, completed, done_frame, finish_reason
         data = _sse_data(lines)
         usage_only = False
+        public_lines = lines
         if data == "[DONE]":
             completed = True
             # Official SDKs stop consuming as soon as they receive [DONE]. Hold the
@@ -360,6 +440,7 @@ async def _stream_response(
             except json.JSONDecodeError:
                 event = None
             if isinstance(event, dict):
+                event = _normalize_reasoning_fields(event)
                 if isinstance(event.get("usage"), dict):
                     usage_raw = event["usage"]
                     usage_only = event.get("choices") == []
@@ -368,11 +449,42 @@ async def _stream_response(
                     if isinstance(content, str):
                         completion_chars += len(content)
                         completion_parts.append(content)
+                    reasoning = (choice.get("delta") or {}).get("reasoning")
+                    if isinstance(reasoning, str):
+                        completion_chars += len(reasoning)
+                        reasoning_parts.append(reasoning)
+                    for tool_delta in (choice.get("delta") or {}).get("tool_calls") or []:
+                        if not isinstance(tool_delta, dict):
+                            continue
+                        index = int(tool_delta.get("index", 0))
+                        accumulated = tool_calls.setdefault(
+                            index,
+                            {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            },
+                        )
+                        if isinstance(tool_delta.get("id"), str):
+                            accumulated["id"] = tool_delta["id"]
+                        if isinstance(tool_delta.get("type"), str):
+                            accumulated["type"] = tool_delta["type"]
+                        function = tool_delta.get("function") or {}
+                        if isinstance(function.get("name"), str):
+                            accumulated["function"]["name"] = function["name"]
+                            completion_chars += len(function["name"])
+                        if isinstance(function.get("arguments"), str):
+                            accumulated["function"]["arguments"] += function["arguments"]
+                            completion_chars += len(function["arguments"])
                     if choice.get("finish_reason") is not None:
                         finish_reason = str(choice["finish_reason"])
+                encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                public_lines = [
+                    f"data: {encoded}" if line.startswith("data:") else line for line in lines
+                ]
 
         if not (usage_only and not include_usage):
-            yield ("\n".join(lines) + "\n\n").encode()
+            yield ("\n".join(public_lines) + "\n\n").encode()
 
     try:
         async for line in upstream.aiter_lines():
@@ -391,7 +503,7 @@ async def _stream_response(
         completed = False
     finally:
         await upstream.aclose()
-        normalized = _usage(messages, completion_chars, usage_raw)
+        normalized = _usage(request_body, completion_chars, usage_raw)
         await _persist_api_request(
             principal=principal,
             model_id=model_id,
@@ -408,6 +520,16 @@ async def _stream_response(
                         "message": {
                             "role": "assistant",
                             "content": "".join(completion_parts),
+                            **(
+                                {"reasoning": "".join(reasoning_parts)}
+                                if reasoning_parts
+                                else {}
+                            ),
+                            **(
+                                {"tool_calls": [tool_calls[index] for index in sorted(tool_calls)]}
+                                if tool_calls
+                                else {}
+                            ),
                         },
                         "finish_reason": finish_reason,
                     }

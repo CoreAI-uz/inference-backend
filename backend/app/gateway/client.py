@@ -18,6 +18,7 @@ from app.core.config import ModelConfig
 @dataclass
 class ChatChunk:
     content: str | None
+    reasoning: str | None
     finish_reason: str | None
     usage: dict | None
 
@@ -66,11 +67,24 @@ class VLLMClient:
                     continue
 
                 content: str | None = None
+                reasoning: str | None = None
                 finish: str | None = None
                 choices = obj.get("choices") or []
                 if choices:
                     ch0 = choices[0]
-                    content = (ch0.get("delta") or {}).get("content")
+                    delta = ch0.get("delta") or {}
+                    content = delta.get("content")
+                    # vLLM emits parsed thinking under ``reasoning``. Accept the
+                    # alternate name as well so the gateway remains portable across
+                    # OpenAI-compatible inference servers.
+                    reasoning = delta.get("reasoning")
+                    if reasoning is None:
+                        reasoning = delta.get("reasoning_content")
                     finish = ch0.get("finish_reason")
 
-                yield ChatChunk(content=content, finish_reason=finish, usage=obj.get("usage"))
+                yield ChatChunk(
+                    content=content,
+                    reasoning=reasoning,
+                    finish_reason=finish,
+                    usage=obj.get("usage"),
+                )
