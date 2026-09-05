@@ -29,6 +29,10 @@ class ModelRegistry:
         if mid is None:
             raise ModelNotFoundError("no model specified and no default configured")
         cfg = self._models.get(mid)
+        if cfg is None:
+            matches = [(key, value) for key, value in self._models.items() if mid in value.aliases]
+            if len(matches) == 1:
+                mid, cfg = matches[0]
         if cfg is None or not cfg.enabled:
             raise ModelNotFoundError(mid)
         return mid, cfg

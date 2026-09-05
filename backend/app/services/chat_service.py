@@ -78,6 +78,7 @@ async def stream_chat_completion(
     attach_parent_id: uuid.UUID | None,
     new_user_content: str | None,
     reasoning_effort: ReasoningEffort,
+    thinking: bool = False,
 ) -> AsyncGenerator[str, None]:
     settings = get_settings()
 
@@ -94,20 +95,8 @@ async def stream_chat_completion(
     extra: dict | None = None
     expect_reasoning = False
     if cfg.supports_thinking:
-        enabled = reasoning_effort != "none"
-        extra = {
-            "chat_template_kwargs": {
-                "enable_thinking": enabled,
-                "preserve_thinking": enabled,
-            }
-        }
-        if enabled:
-            extra["reasoning_effort"] = reasoning_effort
-            # LiteLLM validates OpenAI-compatible parameters before forwarding the
-            # request. This model supports the parameter at the vLLM boundary, so
-            # explicitly allow it through the internal gateway.
-            extra["allowed_openai_params"] = ["reasoning_effort"]
-        expect_reasoning = enabled
+        extra = cfg.reasoning_body(reasoning_effort, thinking=thinking)
+        expect_reasoning = extra["chat_template_kwargs"]["enable_thinking"]
 
     upstream_headers: dict[str, str] = {}
 

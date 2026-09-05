@@ -16,6 +16,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+
 
 class ModelConfig(BaseModel):
     """One entry of the ``model_id -> {...}`` routing map (gateway config)."""
@@ -28,19 +30,24 @@ class ModelConfig(BaseModel):
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
+    aliases: list[str] = Field(default_factory=list)
     # Model can produce a separately parsed reasoning trace.
     supports_thinking: bool = False
     supports_tools: bool = False
-    reasoning_efforts: list[Literal["none", "low", "medium", "xhigh"]] = Field(
+    reasoning_mode: Literal["effort", "toggle"] = "effort"
+    reasoning_efforts: list[ReasoningEffort] = Field(
         default_factory=list
     )
-    default_reasoning_effort: Literal["none", "low", "medium", "xhigh"] = "low"
+    default_reasoning_effort: ReasoningEffort = "low"
     # Extra request-body params merged into every completion (e.g. per-model sampling).
     extra_body: dict = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _reasoning_capabilities(self):
-        if self.supports_thinking:
+        if self.supports_thinking and self.reasoning_mode == "toggle":
+            self.reasoning_efforts = []
+            self.default_reasoning_effort = "none"
+        elif self.supports_thinking:
             if not self.reasoning_efforts:
                 self.reasoning_efforts = ["none", "low", "medium", "xhigh"]
             if self.default_reasoning_effort not in self.reasoning_efforts:
@@ -55,6 +62,18 @@ class ModelConfig(BaseModel):
         if self.api_key and self.api_key.startswith("os.environ/"):
             return os.environ.get(self.api_key.removeprefix("os.environ/"))
         return self.api_key
+
+    def reasoning_body(self, effort: ReasoningEffort, *, thinking: bool = False) -> dict:
+        if not self.supports_thinking:
+            return {}
+        enabled = thinking if self.reasoning_mode == "toggle" else effort != "none"
+        body = {"chat_template_kwargs": {"enable_thinking": enabled}}
+        if self.reasoning_mode == "effort":
+            body["chat_template_kwargs"]["preserve_thinking"] = enabled
+            if enabled:
+                body["reasoning_effort"] = effort
+                body["allowed_openai_params"] = ["reasoning_effort"]
+        return body
 
 
 class Settings(BaseSettings):

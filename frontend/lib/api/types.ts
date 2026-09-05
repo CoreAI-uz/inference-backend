@@ -6,6 +6,7 @@ export interface ModelInfo {
   description: string | null;
   tags: string[];
   supports_thinking: boolean;
+  reasoning_mode?: "effort" | "toggle";
   supports_tools: boolean;
   reasoning_efforts: ReasoningEffort[];
   default_reasoning_effort: ReasoningEffort;

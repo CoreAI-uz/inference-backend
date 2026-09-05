@@ -7,11 +7,6 @@ model_list:
       api_base: os.environ/GEMMA_INFERENCE_BASE_URL
       api_key: os.environ/VLLM_API_KEY
 
-  - model_name: qwen3.8-27b
-    litellm_params:
-      model: openai/qwen3.8-27b
-      api_base: os.environ/QWEN_INFERENCE_BASE_URL
-      api_key: os.environ/VLLM_API_KEY
 
 router_settings:
   num_retries: 1

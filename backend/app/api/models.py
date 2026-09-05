@@ -19,6 +19,7 @@ async def list_models() -> list[dict]:
             "description": cfg.description,
             "tags": cfg.tags,
             "supports_thinking": cfg.supports_thinking,
+            "reasoning_mode": cfg.reasoning_mode,
             "supports_tools": cfg.supports_tools,
             "reasoning_efforts": cfg.reasoning_efforts,
             "default_reasoning_effort": cfg.default_reasoning_effort,

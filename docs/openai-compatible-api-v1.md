@@ -50,7 +50,7 @@ Returns the enabled public model IDs in the standard list envelope:
 Required fields:
 
 - `model`
-- `messages` containing `system`, `user`, `assistant`, or `tool` messages
+- `messages` containing `system`, `developer`, `user`, `assistant`, or `tool` messages
 
 Supported request fields in v1:
 
@@ -58,7 +58,8 @@ Supported request fields in v1:
 - `stream_options.include_usage`
 - `temperature`
 - `top_p`
-- `max_tokens`
+- `max_tokens` or `max_completion_tokens` (send one)
+- `n: 1`
 - `stop`
 - `seed`
 - `frequency_penalty`
@@ -76,15 +77,27 @@ log probabilities, and multiple choices are not supported.
 
 ### Reasoning controls
 
-`qwen3.8-27b` supports these `reasoning_effort` values:
+`gemma4-31b-it` supports thinking on/off. Thinking is off when the request omits
+`reasoning.enabled`.
 
-- `none` — answer without a reasoning trace
-- `low` — short reasoning and the model default
-- `medium` — balanced reasoning
-- `xhigh` — deep reasoning
+```json
+"reasoning": {"enabled": true}
+```
 
-The equivalent object form is `"reasoning": {"enabled": true, "effort": "medium"}`. Set
-`enabled` to `false` to disable reasoning. Do not send `reasoning` and `reasoning_effort` together.
+Set `enabled` to `false` for a direct answer. Set `exclude` to `true` to omit the reasoning
+text from the response while keeping thinking enabled:
+
+```json
+"reasoning": {"enabled": true, "exclude": true}
+```
+
+Gemma does not support effort levels or a separate reasoning-token budget. Requests containing
+`reasoning_effort` or `reasoning.effort` receive a 400 error. `max_tokens` and
+`max_completion_tokens` limit total generated tokens, including reasoning and the final answer.
+
+Gemma accepts the aliases `google/gemma-4-31b-it`, `google/gemma-4-31b-it:free`, and
+`gemma-4-31B-it`. Its context limit is 262,144 tokens. Text content can be a string or an array
+of `{"type":"text","text":"..."}` parts. System and developer messages provide instructions.
 
 Non-streaming responses expose the trace as `choices[0].message.reasoning`. Streaming responses
 use `choices[0].delta.reasoning`, separately from `content`. Assistant messages may include

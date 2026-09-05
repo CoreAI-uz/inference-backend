@@ -40,13 +40,15 @@ services:
       - --port=8000
       - --api-key=${VLLM_API_KEY}
       - --quantization=fp8
-      - --gpu-memory-utilization=${GEMMA_GPU_FRAC:-0.52}
-      - --max-model-len=${GEMMA_MAXLEN:-16384}
+      - --reasoning-parser=gemma4
+      - --gpu-memory-utilization=${GEMMA_GPU_FRAC:-0.90}
+      - --max-model-len=${GEMMA_MAXLEN:-262144}
       - --speculative-config={"model":"/models/gemma-4-31B-it-assistant","num_speculative_tokens":${GEMMA_SPEC_TOKENS:-6}}
     ports:
       - "127.0.0.1:18001:8000"
 
   vllm-qwen:
+    profiles: [qwen]
     <<: *vllm-common
     container_name: vllm-qwen
     command:

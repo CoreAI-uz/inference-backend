@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
-ReasoningEffort = Literal["none", "low", "medium", "xhigh"]
+from app.core.config import ReasoningEffort
 
 
 class ChatMessage(BaseModel):
@@ -45,5 +45,5 @@ class ChatRequest(BaseModel):
         if self.reasoning_effort is not None:
             return self.reasoning_effort
         if self.thinking is not None:
-            return default if self.thinking else "none"
+            return (default if default != "none" else "medium") if self.thinking else "none"
         return default

@@ -5,13 +5,11 @@ Documentation and account management are available at:
 - Product docs: `https://chat.coreai.uz/docs`
 - Keys and usage: `https://chat.coreai.uz/console`
 
-CoreAI implements the OpenAI Chat Completions shape. Existing applications normally need only two
-configuration changes:
+Base URL: `https://inference-api.coreai.uz/v1`
 
-```text
-base URL: https://inference-api.coreai.uz/v1
-API key:  cai_...
-```
+Model: `google/gemma-4-31b-it`
+
+Authentication: `Authorization: Bearer cai_...`
 
 Create a key while signed in to the [CoreAI developer console](https://chat.coreai.uz/console).
 Copy it immediately: the plaintext value is shown once and cannot be recovered later. The console
@@ -37,7 +35,7 @@ response = requests.post(
     "https://inference-api.coreai.uz/v1/chat/completions",
     headers={"Authorization": f"Bearer {os.environ['COREAI_API_KEY']}"},
     json={
-        "model": "coreai-model-id",
+        "model": "google/gemma-4-31b-it",
         "messages": [{"role": "user", "content": "Salom!"}],
     },
 )
@@ -62,7 +60,7 @@ client = OpenAI(
 )
 
 completion = client.chat.completions.create(
-    model="coreai-model-id",
+    model="google/gemma-4-31b-it",
     messages=[{"role": "user", "content": "Salom! Qisqa javob bering."}],
 )
 
@@ -73,7 +71,7 @@ For streaming:
 
 ```python
 stream = client.chat.completions.create(
-    model="coreai-model-id",
+    model="google/gemma-4-31b-it",
     messages=[{"role": "user", "content": "Salom!"}],
     stream=True,
     stream_options={"include_usage": True},
@@ -100,7 +98,7 @@ const client = new OpenAI({
 });
 
 const completion = await client.chat.completions.create({
-  model: "coreai-model-id",
+  model: "google/gemma-4-31b-it",
   messages: [{ role: "user", content: "Salom! Qisqa javob bering." }],
 });
 
@@ -114,7 +112,7 @@ curl https://inference-api.coreai.uz/v1/chat/completions \
   -H "Authorization: Bearer $COREAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "coreai-model-id",
+    "model": "google/gemma-4-31b-it",
     "messages": [{"role": "user", "content": "Salom!"}]
   }'
 ```
@@ -217,3 +215,22 @@ Reusable real-server checks using the official OpenAI Python and JavaScript SDKs
 [`compatibility/`](../compatibility/README.md). They exercise model listing, JSON completion,
 streaming chunks, terminal usage, and SDK deserialization. Run them with a disposable CoreAI key
 against local development, staging, or production and revoke the key afterward.
+
+## Gemma thinking
+
+Thinking is off by default. Enable it for an individual request:
+
+```python
+completion = client.chat.completions.create(
+    model="google/gemma-4-31b-it",
+    messages=[{"role": "user", "content": "Solve 3x + 7 = 22."}],
+    max_completion_tokens=1024,
+    extra_body={"reasoning": {"enabled": True}},
+)
+print(completion.choices[0].message.content)
+print(completion.choices[0].message.reasoning)
+```
+
+Streaming responses provide `delta.reasoning` and `delta.content` separately.
+Use `{"reasoning": {"enabled": true, "exclude": true}}` to omit reasoning text from responses.
+Gemma supports thinking on/off; effort levels and separate reasoning-token budgets are unsupported.

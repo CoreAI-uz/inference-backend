@@ -79,6 +79,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
   const [convId, setConvId] = useState<string | null>(initialConversationId ?? null);
   const [railOpen, setRailOpen] = useState(false);
   const [modelMenu, setModelMenu] = useState(false);
+  const [thinking, setThinking] = useState(false);
   const [reasoningMenu, setReasoningMenu] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [search, setSearch] = useState("");
@@ -148,6 +149,11 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     () => models.find((m) => m.id === modelId),
     [models, modelId],
   );
+  const thinkingToggle = selectedModel?.reasoning_mode === "toggle";
+  const reasoningControl = thinkingToggle
+    ? { thinking }
+    : { reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined };
+
   const supportedReasoningEfforts: ReasoningEffort[] = useMemo(
     () => selectedModel?.reasoning_efforts
       ?? (selectedModel?.supports_thinking ? ["none", "low", "medium", "xhigh"] : []),
@@ -302,7 +308,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
     const body: StreamChatBody = {
       model: modelId,
       user_content: content,
-      reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined,
+      ...reasoningControl,
     };
     if (convId) body.conversation_id = convId;
     void runStream(body, activePath(tree), content);
@@ -320,7 +326,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
         conversation_id: convId,
         parent_id: node.parent_id,
         user_content: content,
-        reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined,
+        ...reasoningControl,
       },
       base,
       content,
@@ -337,7 +343,7 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
         model: modelId,
         conversation_id: convId,
         parent_id: node.parent_id,
-        reasoning_effort: selectedModel?.supports_thinking ? reasoningEffort : undefined,
+        ...reasoningControl,
       },
       base,
       null,
@@ -741,19 +747,20 @@ export function ChatApp({ initialConversationId }: { initialConversationId?: str
                   {selectedModel?.supports_thinking && (
                     <div className="relative">
                       <button
-                        onClick={() => { setModelMenu(false); setReasoningMenu((v) => !v); }}
-                        title={t("reasoningEffort")}
-                        aria-expanded={reasoningMenu}
+                        onClick={() => { setModelMenu(false); if (thinkingToggle) setThinking((v) => !v); else setReasoningMenu((v) => !v); }}
+                        title={t(thinkingToggle ? "thinking" : "reasoningEffort")}
+                        aria-pressed={thinkingToggle ? thinking : undefined}
+                        aria-expanded={thinkingToggle ? undefined : reasoningMenu}
                         className="flex shrink-0 cursor-pointer items-center gap-[6px] rounded-[9px] border px-[9px] py-[6px] text-[12.5px] transition-colors"
-                        style={reasoningEffort !== "none"
+                        style={(thinkingToggle ? thinking : reasoningEffort !== "none")
                           ? { borderColor: "var(--brand-orange)", background: "var(--brand-orange-tint)", color: "var(--brand-orange-hi)" }
                           : { borderColor: "var(--border-subtle)", color: "var(--fg-tertiary)" }}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.5.5 1 1.2 1 2V16h6v-.5c0-.8.5-1.5 1-2A6 6 0 0 0 12 3z" /></svg>
-                        <span>{t(`reasoningLevel.${reasoningEffort}`)}</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+                        <span>{thinkingToggle ? t("thinking") : t(`reasoningLevel.${reasoningEffort}`)}</span>
+                        {!thinkingToggle && (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>)}
                       </button>
-                      {reasoningMenu && (
+                      {!thinkingToggle && reasoningMenu && (
                         <>
                           <div onClick={() => setReasoningMenu(false)} className="fixed inset-0 z-[25]" />
                           <div className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[190px] animate-fadeup rounded-xl border border-line-default bg-elevated p-[6px] shadow-lg">

@@ -13,6 +13,7 @@ export interface StreamChatBody {
   // explicitly; omit for a plain new turn (server uses the active leaf).
   parent_id?: string | null;
   reasoning_effort?: ReasoningEffort;
+  thinking?: boolean;
   // Legacy new-turn shape; server only reads the last user message from it.
   messages?: ChatRequestMessage[];
 }

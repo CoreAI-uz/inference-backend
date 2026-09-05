@@ -71,12 +71,11 @@ print(response.choices[0].message.content)`,
 const responseExample = `{
   "id": "chatcmpl_...",
   "object": "chat.completion",
-  "model": "qwen3.8-27b",
+  "model": "gemma4-31b-it",
   "choices": [{
     "index": 0,
     "message": {
       "role": "assistant",
-      "reasoning": "I should answer in the user's language...",
       "content": "Salom!"
     },
     "finish_reason": "stop"
@@ -102,9 +101,9 @@ const reasoningExample = `curl ${API_BASE}/chat/completions \\
   -H "Authorization: Bearer $COREAI_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "qwen3.8-27b",
+    "model": "google/gemma-4-31b-it",
     "messages": [{"role": "user", "content": "Compare two deployment plans."}],
-    "reasoning_effort": "medium"
+    "reasoning": {"enabled": true}
   }'`;
 
 const toolRequestExample = `curl ${API_BASE}/chat/completions \\
@@ -175,8 +174,7 @@ const parameters = [
   ["max_tokens", "integer", "docs.modelDefault", "docs.paramMaxTokens"],
   ["stop", "string | array", "null", "docs.paramStop"],
   ["seed", "integer", "null", "docs.paramSeed"],
-  ["reasoning_effort", "string", "docs.reasoningDefault", "docs.paramReasoningEffort"],
-  ["reasoning", "object", "null", "docs.paramReasoning"],
+  ["reasoning", "object", "false", "docs.paramReasoning"],
   ["tools", "array", "null", "docs.paramTools"],
   ["tool_choice", "string | object", "auto / none", "docs.paramToolChoice"],
   ["parallel_tool_calls", "boolean", "true", "docs.paramParallelToolCalls"],
@@ -273,11 +271,6 @@ export function ApiDocs() {
 
           <section id="reasoning" className="mt-16 scroll-mt-24">
             <SectionTitle title={t("docs.reasoningTitle")} body={t("docs.reasoningBody")} />
-            <div className="mt-5 grid gap-3 sm:grid-cols-4">
-              {(["none", "low", "medium", "xhigh"] as const).map((effort) => (
-                <Fact key={effort} label={effort} value={t(`docs.reasoningLevel.${effort}`)} mono />
-              ))}
-            </div>
             <CodeBlock code={reasoningExample} copy={() => void copy("reasoning", reasoningExample)} copied={copied === "reasoning"} t={t} compact />
             <Callout>{t("docs.reasoningResponse")}</Callout>
           </section>

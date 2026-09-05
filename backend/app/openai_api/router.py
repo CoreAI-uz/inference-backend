@@ -161,21 +161,17 @@ async def _persist_api_request(
 
 
 def _upstream_body(payload: ChatCompletionIn, cfg: ModelConfig) -> dict[str, Any]:
-    body = payload.model_dump(exclude_none=True, exclude={"reasoning", "reasoning_effort"})
+    body = payload.model_dump(
+        exclude_none=True, exclude={"reasoning", "reasoning_effort", "max_completion_tokens"}
+    )
     body["model"] = cfg.served_model_name
     body["messages"] = [message.upstream() for message in payload.messages]
-    if cfg.supports_thinking:
-        effort = payload.resolved_reasoning_effort(cfg.default_reasoning_effort)
-        enabled = effort != "none"
-        body["chat_template_kwargs"] = {
-            "enable_thinking": enabled,
-            "preserve_thinking": enabled,
-        }
-        if enabled:
-            body["reasoning_effort"] = effort
-            # This is consumed by LiteLLM and is not part of CoreAI's public API.
-            # It permits the model-supported parameter to reach the vLLM worker.
-            body["allowed_openai_params"] = ["reasoning_effort"]
+    if payload.max_completion_tokens is not None:
+        body["max_tokens"] = payload.max_completion_tokens
+    body.update(cfg.reasoning_body(
+        payload.resolved_reasoning_effort(cfg.default_reasoning_effort),
+        thinking=bool(payload.reasoning and payload.reasoning.enabled),
+    ))
 
     # Accurate streaming metering requires the terminal usage event. It is removed
     # from the public stream below when the caller did not request include_usage.
@@ -198,7 +194,21 @@ def _normalize_reasoning_fields(value: Any) -> Any:
     return normalized
 
 
+def _exclude_reasoning(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_exclude_reasoning(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _exclude_reasoning(item)
+            for key, item in value.items()
+            if key not in {"reasoning", "reasoning_content", "reasoning_details"}
+        }
+    return value
+
+
 def _reasoning_metadata(cfg: ModelConfig) -> dict[str, Any]:
+    if cfg.supports_thinking and cfg.reasoning_mode == "toggle":
+        return {"supported": True, "mode": "toggle", "default_enabled": False}
     return {
         "supported": cfg.supports_thinking,
         "efforts": cfg.reasoning_efforts,
@@ -257,6 +267,7 @@ async def list_models(_principal: APIPrincipal = Depends(require_api_key)) -> di
                 "object": "model",
                 "created": 0,
                 "owned_by": "coreai",
+                "aliases": cfg.aliases,
                 "capabilities": {
                     "reasoning": _reasoning_metadata(cfg),
                     "tools": _tool_metadata(cfg),
@@ -291,7 +302,16 @@ async def chat_completions(
     effort: ReasoningEffort = payload.resolved_reasoning_effort(
         cfg.default_reasoning_effort
     )
-    if effort not in (cfg.reasoning_efforts or ["none"]):
+    if cfg.supports_thinking and cfg.reasoning_mode == "toggle":
+        if payload.reasoning_effort is not None or (payload.reasoning and payload.reasoning.effort is not None):
+            raise OpenAIAPIError(
+                400,
+                "This model supports thinking on/off. Use reasoning.enabled; effort levels are not supported.",
+                param="reasoning_effort" if payload.reasoning_effort is not None else "reasoning.effort",
+                code="unsupported_value",
+                headers=rate_headers,
+            )
+    elif effort not in (cfg.reasoning_efforts or ["none"]):
         raise OpenAIAPIError(
             400,
             f"Reasoning effort '{effort}' is not supported by model '{model_id}'.",
@@ -353,6 +373,7 @@ async def chat_completions(
                 request_id=request_id,
                 started=started,
                 request_body=retained_request,
+                exclude_reasoning=bool(payload.reasoning and payload.reasoning.exclude),
             ),
             status_code=upstream.status_code,
             media_type="text/event-stream",
@@ -370,6 +391,8 @@ async def chat_completions(
     finally:
         await upstream.aclose()
     public_raw = _normalize_reasoning_fields(raw) if isinstance(raw, dict) else raw
+    if payload.reasoning and payload.reasoning.exclude:
+        public_raw = _exclude_reasoning(public_raw)
     normalized = _usage(
         retained_request,
         0,
@@ -414,6 +437,7 @@ async def _stream_response(
     request_id: str,
     started: float,
     request_body: dict[str, Any],
+    exclude_reasoning: bool = False,
 ) -> AsyncGenerator[bytes, None]:
     usage_raw: dict[str, Any] | None = None
     completion_chars = 0
@@ -481,6 +505,8 @@ async def _stream_response(
                             completion_chars += len(function["arguments"])
                     if choice.get("finish_reason") is not None:
                         finish_reason = str(choice["finish_reason"])
+                if exclude_reasoning:
+                    event = _exclude_reasoning(event)
                 encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
                 public_lines = [
                     f"data: {encoded}" if line.startswith("data:") else line for line in lines

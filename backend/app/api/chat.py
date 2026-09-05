@@ -49,7 +49,10 @@ async def chat_completions(
                        f"unknown or unavailable model: {payload.model!r}") from None
 
     reasoning_effort = payload.resolved_reasoning_effort(cfg.default_reasoning_effort)
-    if reasoning_effort not in (cfg.reasoning_efforts or ["none"]):
+    if cfg.supports_thinking and cfg.reasoning_mode == "toggle":
+        if payload.reasoning_effort is not None:
+            raise APIError(400, ErrorCode.INVALID_REQUEST, "Use thinking for this model; effort levels are not supported")
+    elif reasoning_effort not in (cfg.reasoning_efforts or ["none"]):
         raise APIError(
             400,
             ErrorCode.INVALID_REQUEST,
@@ -136,5 +139,6 @@ async def chat_completions(
         attach_parent_id=attach_parent_id,
         new_user_content=new_user_content,
         reasoning_effort=reasoning_effort,
+        thinking=bool(payload.thinking),
     )
     return StreamingResponse(generator, media_type="text/event-stream", headers=SSE_HEADERS)

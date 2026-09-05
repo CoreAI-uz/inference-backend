@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ReasoningEffort = Literal["none", "low", "medium", "xhigh"]
+from app.core.config import ReasoningEffort
 
 
 class FunctionDefinition(BaseModel):
@@ -53,11 +53,19 @@ class AssistantToolCall(BaseModel):
     function: ToolCallFunction
 
 
+class TextContentPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["text"]
+    text: str
+
+
 class PublicChatMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: Literal["system", "user", "assistant", "tool"]
-    content: str | None = None
+    role: Literal["system", "developer", "user", "assistant", "tool"]
+    content: str | list[TextContentPart] | None = None
+    name: str | None = None
     tool_calls: list[AssistantToolCall] | None = None
     tool_call_id: str | None = Field(default=None, min_length=1, max_length=128)
     # ``reasoning`` is CoreAI's public response/input field. The alternate name is
@@ -73,7 +81,7 @@ class PublicChatMessage(BaseModel):
             self.reasoning is not None or self.reasoning_content is not None
         ):
             raise ValueError("reasoning may only be supplied on assistant messages")
-        if self.role in {"system", "user"}:
+        if self.role in {"system", "developer", "user"}:
             if self.content is None:
                 raise ValueError(f"content is required for {self.role} messages")
             if self.tool_calls is not None or self.tool_call_id is not None:
@@ -99,6 +107,10 @@ class PublicChatMessage(BaseModel):
             exclude={"reasoning", "reasoning_content"},
         )
         reasoning = self.reasoning if self.reasoning is not None else self.reasoning_content
+        if isinstance(self.content, list):
+            message["content"] = "".join(part.text for part in self.content)
+        if self.role == "developer":
+            message["role"] = "system"
         if reasoning is not None:
             message["reasoning_content"] = reasoning
         return message
@@ -107,8 +119,9 @@ class PublicChatMessage(BaseModel):
 class ReasoningOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = True
-    effort: Literal["low", "medium", "xhigh"] | None = None
+    enabled: bool | None = None
+    effort: ReasoningEffort | None = None
+    exclude: bool = False
 
 
 class StreamOptions(BaseModel):
@@ -127,6 +140,8 @@ class ChatCompletionIn(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     max_tokens: int | None = Field(default=None, ge=1)
+    max_completion_tokens: int | None = Field(default=None, ge=1)
+    n: Literal[1] = 1
     stop: str | list[str] | None = None
     seed: int | None = None
     frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
@@ -146,8 +161,12 @@ class ChatCompletionIn(BaseModel):
             raise ValueError("stop must contain between 1 and 4 strings")
         if self.reasoning_effort is not None and self.reasoning is not None:
             raise ValueError("use either reasoning_effort or reasoning, not both")
-        if self.reasoning is not None and not self.reasoning.enabled and self.reasoning.effort:
+        if self.max_tokens is not None and self.max_completion_tokens is not None:
+            raise ValueError("use either max_tokens or max_completion_tokens, not both")
+        if self.reasoning is not None and self.reasoning.enabled is False and self.reasoning.effort not in (None, "none"):
             raise ValueError("reasoning.effort cannot be set when reasoning.enabled is false")
+        if self.reasoning is not None and self.reasoning.enabled is True and self.reasoning.effort == "none":
+            raise ValueError("reasoning.effort cannot be none when reasoning.enabled is true")
         if self.tool_choice not in (None, "none") and not self.tools:
             raise ValueError("tools are required when tool_choice requests a tool")
         if self.parallel_tool_calls is not None and not self.tools:
@@ -162,9 +181,12 @@ class ChatCompletionIn(BaseModel):
         if self.reasoning_effort is not None:
             return self.reasoning_effort
         if self.reasoning is not None:
-            if not self.reasoning.enabled:
+            if self.reasoning.enabled is False:
                 return "none"
-            return self.reasoning.effort or default
+            if self.reasoning.effort is not None:
+                return self.reasoning.effort
+            if self.reasoning.enabled is True:
+                return default if default != "none" else "medium"
         return default
 
     def uses_tools(self) -> bool:

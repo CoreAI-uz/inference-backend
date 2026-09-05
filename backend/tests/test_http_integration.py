@@ -1631,3 +1631,47 @@ async def test_web_and_api_share_the_registered_request_bucket(http_client, monk
         assert web_response.status_code == 429
     finally:
         await _cleanup(user_ids=(user_id,))
+
+
+async def test_gemma_toggle_openrouter_sdk_compatibility(http_client, monkeypatch):
+    client, app = http_client
+    monkeypatch.setattr(get_settings(), "models_config", {"gemma-mock": ModelConfig(
+        endpoint="http://mock-vllm/v1", served_model_name="gemma-mock", display_name="Gemma",
+        supports_thinking=True, reasoning_mode="toggle", aliases=["google/gemma-4-31b-it"],
+    )})
+    me = await _register(client)
+    user_id = uuid.UUID(me["user"]["id"])
+    key = (await client.post("/api/developer/keys", json={"name": "Gemma toggle test"})).json()["key"]
+    try:
+        async with AsyncOpenAI(api_key=key, base_url="http://testserver/v1",
+            http_client=httpx.AsyncClient(transport=httpx.ASGITransport(app=app))) as sdk:
+            models = await sdk.models.list()
+            assert models.data[0].capabilities["reasoning"] == {
+                "supported": True, "mode": "toggle", "default_enabled": False,
+            }
+            messages = [{"role": "developer", "content": "Be concise."},
+                        {"role": "user", "content": [{"type": "text", "text": "Hello"}]}]
+            for control, expected in [({}, False), ({"reasoning": {"enabled": True}}, True),
+                ({"reasoning": {"enabled": False}}, False),
+                ({"reasoning": {"enabled": True, "exclude": True}}, False)]:
+                for stream in (False, True):
+                    result = await sdk.chat.completions.create(model="google/gemma-4-31b-it",
+                        messages=messages, max_completion_tokens=512, stream=stream, extra_body=control,
+                        **({"stream_options": {"include_usage": True}} if stream else {}))
+                    if stream:
+                        chunks = [chunk async for chunk in result]
+                        reason = "".join(getattr(choice.delta, "reasoning", "") or ""
+                            for chunk in chunks for choice in chunk.choices)
+                        assert bool(reason) is expected
+                        assert chunks[-1].usage is not None
+                        assert any(choice.delta.content for chunk in chunks for choice in chunk.choices)
+                    else:
+                        assert bool(getattr(result.choices[0].message, "reasoning", None)) is expected
+                        assert result.choices[0].message.content
+            for control in ({"reasoning_effort": "high"}, {"reasoning": {"effort": "low"}}):
+                response = await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"},
+                    json={"model": "gemma-mock", "messages": messages, **control})
+                assert response.status_code == 400
+                assert "reasoning.enabled" in response.json()["error"]["message"]
+    finally:
+        await _cleanup(user_ids=(user_id,))
