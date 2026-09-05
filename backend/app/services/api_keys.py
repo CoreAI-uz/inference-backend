@@ -130,7 +130,9 @@ async def authenticate(db: AsyncSession, token: str) -> ApiKey | None:
 
     # Avoid a write on every request while keeping the developer console useful.
     stale_before = datetime.now(UTC) - timedelta(minutes=5)
-    if key.last_used_at is None or key.last_used_at < stale_before:
+    if key.user_id not in get_settings().api_no_retention_user_ids and (
+        key.last_used_at is None or key.last_used_at < stale_before
+    ):
         await db.execute(update(ApiKey).where(ApiKey.id == key.id).values(last_used_at=func.now()))
         await db.commit()
     return key

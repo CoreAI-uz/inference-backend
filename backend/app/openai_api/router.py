@@ -55,6 +55,8 @@ def _rate_headers(result: RateLimitResult) -> dict[str, str]:
 
 
 async def _consume_limit(request: Request, principal: APIPrincipal) -> dict[str, str]:
+    if principal.unlimited:
+        return {}
     result = await check_and_consume(
         request.app.state.redis,
         Bucket.CHAT,
@@ -121,6 +123,8 @@ async def _persist_api_request(
     request_body: dict[str, Any],
     response_body: dict[str, Any],
 ) -> None:
+    if principal.no_retention:
+        return
     async with SessionLocal() as db:
         try:
             await record_usage(

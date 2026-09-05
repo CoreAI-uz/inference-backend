@@ -1675,3 +1675,53 @@ async def test_gemma_toggle_openrouter_sdk_compatibility(http_client, monkeypatc
                 assert "reasoning.enabled" in response.json()["error"]["message"]
     finally:
         await _cleanup(user_ids=(user_id,))
+
+
+async def test_private_api_policy_is_scoped_and_does_not_persist(http_client, monkeypatch):
+    client, app = http_client
+    me = await _register(client)
+    uid = uuid.UUID(me["user"]["id"])
+    settings = get_settings()
+    monkeypatch.setattr(settings, "api_unlimited_user_ids", {uid})
+    monkeypatch.setattr(settings, "api_no_retention_user_ids", {uid})
+    monkeypatch.setattr(settings, "rl_user_chat", 1)
+    key = (await client.post("/api/developer/keys", json={"name": "Private policy test"})).json()
+    headers = {"Authorization": "Bearer " + key["key"]}
+    body = {"model": "gemma-mock", "messages": [{"role": "user", "content": "private API input"}]}
+    try:
+        # Both successful delivery paths, errors and model discovery remain read-only.
+        before = dict(app.state.redis.buckets)
+        for stream in (False, True):
+            r = await client.post("/v1/chat/completions", headers=headers, json={**body, "stream": stream})
+            assert r.status_code == 200
+            assert "x-ratelimit-limit-requests" not in r.headers
+        assert (await client.get("/v1/models", headers=headers)).status_code == 200
+        assert (await client.post("/v1/chat/completions", headers=headers, json={**body, "model": "missing"})).status_code == 404
+        assert app.state.redis.buckets == before
+        async with SessionLocal() as db:
+            assert not (await db.execute(select(ApiContentRecord).where(ApiContentRecord.user_id == uid))).scalars().all()
+            assert not (await db.execute(select(UsageEvent).where(UsageEvent.user_id == uid))).scalars().all()
+            row = await db.get(ApiKey, uuid.UUID(key["id"]))
+            assert row.last_used_at is None
+        # Browser chat still persists and is rate limited for this same account.
+        chat = await client.post("/api/chat/completions", json={"model": "gemma-mock", "user_content": "keep my chat"})
+        assert chat.status_code == 200
+        assert (await client.post("/api/chat/completions", json={"model": "gemma-mock", "user_content": "limited chat"})).status_code == 429
+        assert (await client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 200
+        async with SessionLocal() as db:
+            events = (await db.execute(select(UsageEvent).where(UsageEvent.user_id == uid))).scalars().all()
+            assert len(events) == 1 and events[0].source == "web"
+            assert (await db.execute(select(Conversation).where(Conversation.user_id == uid))).scalars().all()
+            assert not (await db.execute(select(ApiContentRecord).where(ApiContentRecord.user_id == uid))).scalars().all()
+        # Accounts without the override retain their normal limits and persistence.
+        monkeypatch.setattr(settings, "api_unlimited_user_ids", set())
+        assert (await client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 429
+        monkeypatch.setattr(settings, "api_no_retention_user_ids", set())
+        app.state.redis.buckets.clear()
+        assert (await client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 200
+        async with SessionLocal() as db:
+            assert (await db.execute(select(ApiContentRecord).where(ApiContentRecord.user_id == uid))).scalars().all()
+            row = await db.get(ApiKey, uuid.UUID(key["id"]))
+            assert row.last_used_at is not None
+    finally:
+        await _cleanup(user_ids=(uid,))

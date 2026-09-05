@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from functools import lru_cache
 from typing import Literal
 
@@ -139,6 +140,9 @@ class Settings(BaseSettings):
     anon_conv_retention_days: int = 30
     # Free-tier API request and response bodies are removed after this window.
     api_content_retention_days: int = 30
+    # Private deployment overrides. Never put real account identifiers in source.
+    api_unlimited_user_ids: set[uuid.UUID] = Field(default_factory=set)
+    api_no_retention_user_ids: set[uuid.UUID] = Field(default_factory=set)
     conv_sweep_interval_s: int = 3600
 
     # --- Auto-titling ---

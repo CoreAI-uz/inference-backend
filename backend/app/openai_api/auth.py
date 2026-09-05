@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.auth.dependencies import Identity, _client_ip
+from app.core.config import get_settings
 from app.models import ApiKey
 from app.openai_api.errors import OpenAIAPIError
 from app.services.api_keys import authenticate
@@ -21,6 +22,8 @@ class APIPrincipal:
     user_id: uuid.UUID
     api_key_id: uuid.UUID
     identity: Identity
+    unlimited: bool = False
+    no_retention: bool = False
 
 
 def _unauthorized() -> OpenAIAPIError:
@@ -55,4 +58,11 @@ async def require_api_key(
         user_id=key.user_id,
         ip=_client_ip(request),
     )
-    return APIPrincipal(user_id=key.user_id, api_key_id=key.id, identity=identity)
+    settings = get_settings()
+    no_retention = key.user_id in settings.api_no_retention_user_ids
+    request.state.api_no_retention = no_retention
+    return APIPrincipal(
+        user_id=key.user_id, api_key_id=key.id, identity=identity,
+        unlimited=key.user_id in settings.api_unlimited_user_ids,
+        no_retention=no_retention,
+    )
