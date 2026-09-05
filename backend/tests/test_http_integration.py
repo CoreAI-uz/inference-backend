@@ -1677,19 +1677,19 @@ async def test_gemma_toggle_openrouter_sdk_compatibility(http_client, monkeypatc
         await _cleanup(user_ids=(user_id,))
 
 
-async def test_private_api_policy_is_scoped_and_does_not_persist(http_client, monkeypatch):
+async def test_private_api_policy_keeps_usage_without_content(http_client, monkeypatch):
     client, app = http_client
     me = await _register(client)
     uid = uuid.UUID(me["user"]["id"])
     settings = get_settings()
     monkeypatch.setattr(settings, "api_unlimited_user_ids", {uid})
-    monkeypatch.setattr(settings, "api_no_retention_user_ids", {uid})
+    monkeypatch.setattr(settings, "api_no_content_retention_user_ids", {uid})
     monkeypatch.setattr(settings, "rl_user_chat", 1)
     key = (await client.post("/api/developer/keys", json={"name": "Private policy test"})).json()
     headers = {"Authorization": "Bearer " + key["key"]}
     body = {"model": "gemma-mock", "messages": [{"role": "user", "content": "private API input"}]}
     try:
-        # Both successful delivery paths, errors and model discovery remain read-only.
+        # Both delivery paths retain statistics, but never request/response content.
         before = dict(app.state.redis.buckets)
         for stream in (False, True):
             r = await client.post("/v1/chat/completions", headers=headers, json={**body, "stream": stream})
@@ -1700,9 +1700,12 @@ async def test_private_api_policy_is_scoped_and_does_not_persist(http_client, mo
         assert app.state.redis.buckets == before
         async with SessionLocal() as db:
             assert not (await db.execute(select(ApiContentRecord).where(ApiContentRecord.user_id == uid))).scalars().all()
-            assert not (await db.execute(select(UsageEvent).where(UsageEvent.user_id == uid))).scalars().all()
+            events = (await db.execute(select(UsageEvent).where(UsageEvent.user_id == uid))).scalars().all()
+            assert len(events) == 2
+            assert all(e.source == "api" and e.data_policy == "usage_only_v1" for e in events)
+            assert all(e.input_tokens > 0 and e.output_tokens > 0 and e.status_code == 200 for e in events)
             row = await db.get(ApiKey, uuid.UUID(key["id"]))
-            assert row.last_used_at is None
+            assert row.last_used_at is not None
         # Browser chat still persists and is rate limited for this same account.
         chat = await client.post("/api/chat/completions", json={"model": "gemma-mock", "user_content": "keep my chat"})
         assert chat.status_code == 200
@@ -1710,13 +1713,14 @@ async def test_private_api_policy_is_scoped_and_does_not_persist(http_client, mo
         assert (await client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 200
         async with SessionLocal() as db:
             events = (await db.execute(select(UsageEvent).where(UsageEvent.user_id == uid))).scalars().all()
-            assert len(events) == 1 and events[0].source == "web"
+            assert sum(e.source == "web" for e in events) == 1
+            assert sum(e.source == "api" for e in events) == 3
             assert (await db.execute(select(Conversation).where(Conversation.user_id == uid))).scalars().all()
             assert not (await db.execute(select(ApiContentRecord).where(ApiContentRecord.user_id == uid))).scalars().all()
         # Accounts without the override retain their normal limits and persistence.
         monkeypatch.setattr(settings, "api_unlimited_user_ids", set())
         assert (await client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 429
-        monkeypatch.setattr(settings, "api_no_retention_user_ids", set())
+        monkeypatch.setattr(settings, "api_no_content_retention_user_ids", set())
         app.state.redis.buckets.clear()
         assert (await client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 200
         async with SessionLocal() as db:

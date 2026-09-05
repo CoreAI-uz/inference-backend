@@ -142,7 +142,7 @@ class Settings(BaseSettings):
     api_content_retention_days: int = 30
     # Private deployment overrides. Never put real account identifiers in source.
     api_unlimited_user_ids: set[uuid.UUID] = Field(default_factory=set)
-    api_no_retention_user_ids: set[uuid.UUID] = Field(default_factory=set)
+    api_no_content_retention_user_ids: set[uuid.UUID] = Field(default_factory=set)
     conv_sweep_interval_s: int = 3600
 
     # --- Auto-titling ---

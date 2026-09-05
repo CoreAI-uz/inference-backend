@@ -12,6 +12,7 @@ from app.models import ConsentEvent
 LEGAL_ACCEPTANCE_SCOPE = "terms_privacy_acceptance"
 LEGAL_POLICY_VERSION = "legal-2026-08-16"
 FREE_DATA_POLICY = "free_review_v1"
+USAGE_ONLY_DATA_POLICY = "usage_only_v1"
 
 
 async def has_legal_acceptance(db: AsyncSession, user_id: uuid.UUID) -> bool:

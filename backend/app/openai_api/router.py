@@ -27,7 +27,7 @@ from app.models import ApiContentRecord
 from app.openai_api.auth import APIPrincipal, require_api_key
 from app.openai_api.errors import OpenAIAPIError
 from app.openai_api.schemas import ChatCompletionIn, ReasoningEffort
-from app.services.data_policy import FREE_DATA_POLICY
+from app.services.data_policy import FREE_DATA_POLICY, USAGE_ONLY_DATA_POLICY
 
 router = APIRouter(prefix="/v1", tags=["OpenAI compatible"])
 log = get_logger(__name__)
@@ -123,8 +123,6 @@ async def _persist_api_request(
     request_body: dict[str, Any],
     response_body: dict[str, Any],
 ) -> None:
-    if principal.no_retention:
-        return
     async with SessionLocal() as db:
         try:
             await record_usage(
@@ -141,23 +139,24 @@ async def _persist_api_request(
                 request_id=request_id,
                 latency_ms=int((time.monotonic() - started) * 1000),
                 status_code=status_code,
-                data_policy=FREE_DATA_POLICY,
+                data_policy=USAGE_ONLY_DATA_POLICY if principal.no_content_retention else FREE_DATA_POLICY,
                 commit=False,
             )
-            db.add(
-                ApiContentRecord(
-                    user_id=principal.user_id,
-                    api_key_id=principal.api_key_id,
-                    request_id=request_id,
-                    model=model_id,
-                    request_body=request_body,
-                    response_body=response_body,
-                    status_code=status_code,
-                    data_policy=FREE_DATA_POLICY,
-                    expires_at=datetime.now(UTC)
-                    + timedelta(days=get_settings().api_content_retention_days),
+            if not principal.no_content_retention:
+                db.add(
+                    ApiContentRecord(
+                        user_id=principal.user_id,
+                        api_key_id=principal.api_key_id,
+                        request_id=request_id,
+                        model=model_id,
+                        request_body=request_body,
+                        response_body=response_body,
+                        status_code=status_code,
+                        data_policy=FREE_DATA_POLICY,
+                        expires_at=datetime.now(UTC)
+                        + timedelta(days=get_settings().api_content_retention_days),
+                    )
                 )
-            )
             await db.commit()
         except Exception:  # noqa: BLE001 - completion delivery must not be lost
             await db.rollback()

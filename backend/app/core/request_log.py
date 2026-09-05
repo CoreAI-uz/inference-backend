@@ -33,7 +33,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
         latency_ms = round((time.perf_counter() - start) * 1000, 1)
 
         path = request.url.path
-        if not path.startswith("/api/health") and not getattr(request.state, "api_no_retention", False):
+        if not path.startswith("/api/health"):
             log.info(
                 "request",
                 request_id=request_id,

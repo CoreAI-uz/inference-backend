@@ -23,7 +23,7 @@ class APIPrincipal:
     api_key_id: uuid.UUID
     identity: Identity
     unlimited: bool = False
-    no_retention: bool = False
+    no_content_retention: bool = False
 
 
 def _unauthorized() -> OpenAIAPIError:
@@ -59,10 +59,9 @@ async def require_api_key(
         ip=_client_ip(request),
     )
     settings = get_settings()
-    no_retention = key.user_id in settings.api_no_retention_user_ids
-    request.state.api_no_retention = no_retention
+    no_content_retention = key.user_id in settings.api_no_content_retention_user_ids
     return APIPrincipal(
         user_id=key.user_id, api_key_id=key.id, identity=identity,
         unlimited=key.user_id in settings.api_unlimited_user_ids,
-        no_retention=no_retention,
+        no_content_retention=no_content_retention,
     )
